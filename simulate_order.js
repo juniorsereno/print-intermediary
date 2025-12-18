@@ -1,4 +1,4 @@
-const http = require('http');
+const https = require('https');
 
 const orderData = {
     id: 12345,
@@ -19,8 +19,8 @@ const orderData = {
 const data = JSON.stringify(orderData);
 
 const options = {
-    hostname: 'localhost',
-    port: 3000,
+    hostname: 'api-printer-soli.idu6le.easypanel.host',
+    port: 443,
     path: '/api/print',
     method: 'POST',
     headers: {
@@ -29,7 +29,7 @@ const options = {
     }
 };
 
-const req = http.request(options, (res) => {
+const req = https.request(options, (res) => {
     console.log(`STATUS: ${res.statusCode}`);
     res.setEncoding('utf8');
     res.on('data', (chunk) => {
