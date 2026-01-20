@@ -1,0 +1,28 @@
+{
+  "id": 12345,
+  "customer": "Maria Santos",
+  "address": "Rua das Palmeiras, 789 - Apto 101",
+  "items": [
+    {
+      "quantity": 2,
+      "name": "Pizza Margherita Grande",
+      "price": 45.00
+    },
+    {
+      "quantity": 1,
+      "name": "Pizza Calabresa Média",
+      "price": 35.00
+    },
+    {
+      "quantity": 2,
+      "name": "Refrigerante 2L",
+      "price": 10.00
+    },
+    {
+      "quantity": 1,
+      "name": "Borda Recheada",
+      "price": 8.00
+    }
+  ],
+  "total": 153.00
+}

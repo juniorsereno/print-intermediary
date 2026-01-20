@@ -2,7 +2,11 @@ services:
   print-intermediary:
     build: .
     restart: always
+    ports:
+      - "3000:3000"
     environment:
       - PORT=3000
+      - ID_STORE=72144
+      - ID_USER=1
     # Volumes removed for production/Easypanel deployment
     # The code is already copied inside the image via Dockerfile

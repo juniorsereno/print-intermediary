@@ -104,9 +104,9 @@
             addLog('Desconectado do servidor');
         });
 
-        socket.on('new-print-job', (data) => {
-            addLog(`Recebido pedido: ${data.fileName}`);
-            downloadFile(data.fileName, data.content);
+        socket.on('download', (data) => {
+            addLog(`Recebido pedido para impressão`);
+            downloadFile('pedido.saiposprt', data);
         });
 
         function downloadFile(filename, content) {
