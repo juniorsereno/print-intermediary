@@ -26,7 +26,7 @@ describe('MCP Server Property Tests', () => {
       idUser: 1,
     });
     mcpServer.setWebSocketManager(wsManager);
-    mcpServer.initialize();
+    // Don't initialize here - let each test do it
   });
 
   afterEach(() => {

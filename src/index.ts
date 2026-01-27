@@ -1,13 +1,16 @@
+#!/usr/bin/env node
 /**
  * MCP Thermal Print Server Entry Point
  * Initializes and starts the complete server with HTTP, WebSocket, and MCP support
  * Requirements: 1.1, 1.5
  */
 
-import express from 'express';
+import express, { Request, Response } from 'express';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { DataValidator } from './components/validator.js';
 import { SaiposFormatter } from './components/formatter.js';
 import { WebSocketManager } from './components/websocket.js';
@@ -61,9 +64,22 @@ async function startServer() {
     wsManager.initialize();
     logger.info('WebSocket manager initialized');
 
-    // Middleware
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: true}));
+    // Armazena transportes MCP ativos
+    const transports = new Map<string, StreamableHTTPServerTransport>();
+
+    // Middleware - NÃO aplicar no endpoint /mcp
+    app.use((req, res, next) => {
+      if (req.path === '/mcp') {
+        return next();
+      }
+      express.json()(req, res, next);
+    });
+    app.use((req, res, next) => {
+      if (req.path === '/mcp') {
+        return next();
+      }
+      express.urlencoded({ extended: true })(req, res, next);
+    });
 
     // Serve static files from public directory
     const publicPath = path.join(__dirname, '../public');
@@ -74,6 +90,7 @@ async function startServer() {
     app.get('/health', (_req, res) => {
       res.json({ 
         status: 'ok', 
+        transport: 'streamable-http',
         timestamp: new Date().toISOString(),
         connectedClients: wsManager.getClientCount(),
         historyCount: history.getCount()
@@ -116,62 +133,66 @@ async function startServer() {
     // Legacy print endpoint
     app.post('/api/print', (req, res) => legacyHandler.handlePrintRequest(req, res));
 
-    // MCP endpoint - handles both GET (SSE) and POST (messages)
-    const mcpTransport = mcpServer.getTransport();
-    
-    // Wrapper to fix Accept header for n8n compatibility
-    app.all('/mcp', async (req, res) => {
+    // MCP endpoint - ÚNICO endpoint para todas as operações
+    app.all('/mcp', async (req: Request, res: Response) => {
+      logger.debug('MCP request', { method: req.method, sessionId: req.headers['mcp-session-id'] });
+      
       try {
-        // Set CORS headers
-        res.header('Access-Control-Allow-Origin', '*');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID');
-        
-        // Handle OPTIONS preflight
-        if (req.method === 'OPTIONS') {
-          res.sendStatus(200);
+        // Obtém ou cria session ID
+        const sessionId = req.headers['mcp-session-id'] as string | undefined;
+        let transport: StreamableHTTPServerTransport;
+
+        if (sessionId && transports.has(sessionId)) {
+          // Reutiliza transporte existente
+          transport = transports.get(sessionId)!;
+          logger.debug('Reusing MCP session', { sessionId });
+        } else if (req.method === 'POST' || req.method === 'GET') {
+          // Cria novo transporte para nova sessão
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => crypto.randomUUID(),
+            onsessioninitialized: (newSessionId) => {
+              logger.info('MCP session initialized', { sessionId: newSessionId });
+              transports.set(newSessionId, transport);
+            },
+          });
+
+          // Conecta o servidor MCP ao transporte
+          await mcpServer.connectTransport(transport);
+
+          // Limpa sessão quando fechada
+          transport.onclose = () => {
+            const sid = Array.from(transports.entries()).find(([_, t]) => t === transport)?.[0];
+            if (sid) {
+              logger.info('MCP session closed', { sessionId: sid });
+              transports.delete(sid);
+            }
+          };
+        } else if (req.method === 'DELETE') {
+          // Handle session termination
+          if (sessionId && transports.has(sessionId)) {
+            const transport = transports.get(sessionId)!;
+            await transport.close();
+            transports.delete(sessionId);
+            logger.info('MCP session terminated', { sessionId });
+            res.status(200).json({ message: 'Session terminated' });
+          } else {
+            res.status(404).json({ error: 'Session not found' });
+          }
+          return;
+        } else {
+          res.status(400).json({ error: 'Bad Request: Invalid method' });
           return;
         }
-        
-        // Fix Accept header for POST requests
-        if (req.method === 'POST') {
-          const accept = req.headers.accept || '';
-          if (!accept.includes('text/event-stream') || !accept.includes('application/json')) {
-            req.headers.accept = 'application/json, text/event-stream';
-          }
-        }
-        
-        // Fix Accept header for GET requests (SSE)
-        if (req.method === 'GET') {
-          const accept = req.headers.accept || '';
-          if (!accept.includes('text/event-stream')) {
-            req.headers.accept = 'text/event-stream';
-          }
-        }
-        
-        // Handle the request with the transport
-        await mcpTransport.handleRequest(req, res, req.body);
-      } catch (error) {
-        logger.error('MCP request handling error', error);
+
+        // Delega o handling para o transporte
+        await transport.handleRequest(req, res);
+      } catch (error: any) {
+        logger.error('MCP request error', error);
         if (!res.headersSent) {
-          res.status(500).json({ error: 'Internal server error' });
+          res.status(500).json({ error: error.message || 'Internal server error' });
         }
       }
     });
-    
-    // MCP info endpoint for debugging
-    app.get('/mcp/info', (_req, res) => {
-      res.json({
-        protocol: 'mcp',
-        version: '1.0.0',
-        transport: 'streamable-http',
-        serverName: config.serverName,
-        serverVersion: config.serverVersion,
-        endpoint: '/mcp'
-      });
-    });
-    
-    logger.info('MCP server initialized on /mcp endpoint');
 
     // Root endpoint - redirect to client page
     app.get('/', (_req, res) => {
@@ -201,6 +222,7 @@ async function startServer() {
         }
       });
       console.log(`\n🚀 MCP Thermal Print Server running on port ${config.port}`);
+      console.log(`📊 Health: http://localhost:${config.port}/health`);
       console.log(`📊 Status: http://localhost:${config.port}/api/status`);
       console.log(`🖨️  Print: POST http://localhost:${config.port}/api/print`);
       console.log(`🤖 MCP: http://localhost:${config.port}/mcp`);

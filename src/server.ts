@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * MCP Thermal Print Server
  * Implements the Model Context Protocol for thermal printing
@@ -5,20 +6,15 @@
  */
 
 import crypto from 'crypto';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  Tool,
-} from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import { DataValidator } from './components/validator.js';
 import { SaiposFormatter } from './components/formatter.js';
 import { WebSocketManager } from './components/websocket.js';
 import { PrintHistory } from './components/history.js';
 import { Logger } from './utils/logger.js';
 import type { OrderData } from './types/models.js';
-
 
 /**
  * Configuration for MCPThermalPrintServer
@@ -35,8 +31,8 @@ export interface MCPServerConfig {
  * Main server class that implements MCP protocol for thermal printing
  */
 export class MCPThermalPrintServer {
-  private server: Server;
-  private transport: StreamableHTTPServerTransport;
+  private server: McpServer;
+  private transports: Map<string, StreamableHTTPServerTransport>;
   private validator: DataValidator;
   private formatter: SaiposFormatter;
   private wsManager: WebSocketManager | null;
@@ -44,30 +40,20 @@ export class MCPThermalPrintServer {
   private logger: Logger;
 
   constructor(config: MCPServerConfig) {
-    // Initialize transport first
-    this.transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => crypto.randomUUID(),
+    // Initialize MCP server
+    this.server = new McpServer({
+      name: config.name,
+      version: config.version,
     });
 
-    this.server = new Server(
-      {
-        name: config.name,
-        version: config.version,
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
-
     // Initialize components
+    this.transports = new Map();
     this.validator = new DataValidator();
     this.formatter = new SaiposFormatter({
       idStore: config.idStore,
       idUser: config.idUser,
     });
-    this.wsManager = null; // Will be set when HTTP server is provided
+    this.wsManager = null;
     this.history = new PrintHistory(1000);
     this.logger = new Logger('MCPThermalPrintServer');
     
@@ -79,7 +65,6 @@ export class MCPThermalPrintServer {
 
   /**
    * Sets the WebSocket manager (must be called before starting)
-   * @param wsManager - WebSocket manager instance
    */
   setWebSocketManager(wsManager: WebSocketManager): void {
     this.wsManager = wsManager;
@@ -87,42 +72,108 @@ export class MCPThermalPrintServer {
 
   /**
    * Initializes the MCP server and registers tools
-   * Requirements: 1.1, 1.2, 7.4
    */
   async initialize(): Promise<void> {
     try {
-      // Register tool list handler
-      this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-        this.logger.debug('Tool list requested');
-        return {
-          tools: this.getToolDefinitions(),
-        };
-      });
+      // Register send_print_job tool
+      this.server.tool(
+        'send_print_job',
+        `Sends a print job to connected thermal printers. Validates order data, formats it into Saiposprt format, and broadcasts to all connected print clients via WebSocket.
 
-      // Register tool call handler
-      this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-        const { name, arguments: args } = request.params;
-        this.logger.info('Tool invoked', { toolName: name });
+Output Format:
+{
+  "success": true,
+  "jobId": "uuid-string",
+  "message": "Print job sent successfully to N client(s)",
+  "clientCount": N
+}
 
-        try {
-          switch (name) {
-            case 'send_print_job':
-              return await this.handleSendPrintJob(args);
-            case 'check_printer_status':
-              return await this.handleCheckPrinterStatus();
-            case 'get_print_history':
-              return await this.handleGetPrintHistory(args);
-            default:
-              this.logger.warn('Unknown tool requested', { toolName: name });
-              throw new Error(`Unknown tool: ${name}`);
-          }
-        } catch (error) {
-          this.logger.error('Tool invocation failed', error, { toolName: name });
-          throw error;
-        }
-      });
+Error Conditions:
+- Returns success: false if validation fails
+- Returns success: false if no printers are connected
+- Returns error field with validation details on failure
 
-      this.logger.info('MCP server initialized successfully');
+Example:
+Input: { "id": 123, "customer": "John Doe", "items": [{"quantity": 2, "name": "Pizza", "price": 15.00}], "total": 30.00 }
+Output: { "success": true, "jobId": "abc-123", "message": "Print job sent successfully to 1 client(s)", "clientCount": 1 }`,
+        {
+          id: z.number().positive().describe('Unique order ID (must be a positive integer)'),
+          customer: z.string().min(1).describe('Customer name (cannot be empty)'),
+          address: z.string().optional().describe('Delivery address (optional)'),
+          items: z.array(z.object({
+            quantity: z.number().positive().describe('Quantity of the item (must be positive)'),
+            name: z.string().describe('Name/description of the item'),
+            price: z.number().nonnegative().describe('Unit price of the item (must be non-negative)'),
+          })).min(1).describe('List of items in the order (must have at least one item)'),
+          deliveryFee: z.number().nonnegative().optional().describe('Delivery/shipping fee (optional, defaults to 0)'),
+          total: z.number().nonnegative().optional().describe('Total order value (OPTIONAL - will be calculated automatically)'),
+        },
+        async (args) => await this.handleSendPrintJob(args)
+      );
+
+      // Register check_printer_status tool
+      this.server.tool(
+        'check_printer_status',
+        `Checks the connection status of thermal printer clients. Returns the number of connected clients and their connection details.
+
+Output Format:
+{
+  "connectedClients": N,
+  "clients": [
+    {
+      "id": "uuid-string",
+      "connectedAt": "ISO-8601-timestamp"
+    }
+  ]
+}
+
+Error Conditions:
+- Returns connectedClients: 0 if WebSocket manager is not initialized
+- Returns error field if status retrieval fails
+
+Example:
+Output: { "connectedClients": 2, "clients": [{"id": "abc-123", "connectedAt": "2024-01-01T00:00:00.000Z"}] }`,
+        {},
+        async () => await this.handleCheckPrinterStatus()
+      );
+
+      // Register get_print_history tool
+      this.server.tool(
+        'get_print_history',
+        `Retrieves the history of recent print jobs. Returns job details including ID, order ID, customer name, total value, timestamp, status, and client count.
+
+Output Format:
+{
+  "jobs": [
+    {
+      "id": "uuid-string",
+      "orderId": number,
+      "customer": "string",
+      "total": number,
+      "timestamp": "ISO-8601-timestamp",
+      "status": "sent" | "failed",
+      "clientCount": number
+    }
+  ],
+  "total": number,
+  "limit": number
+}
+
+Error Conditions:
+- Returns empty jobs array if no history exists
+- Returns error field if history retrieval fails
+- Invalid limit values are replaced with default (50)
+
+Example:
+Input: { "limit": 10 }
+Output: { "jobs": [...], "total": 100, "limit": 10 }`,
+        {
+          limit: z.number().min(1).max(1000).optional().describe('Maximum number of jobs to return (default: 50, max: 1000)'),
+        },
+        async (args) => await this.handleGetPrintHistory(args)
+      );
+
+      this.logger.info('MCP server tools registered successfully');
     } catch (error) {
       this.logger.error('Failed to initialize MCP server', error);
       throw new Error('MCP server initialization failed');
@@ -130,188 +181,198 @@ export class MCPThermalPrintServer {
   }
 
   /**
-   * Starts the MCP server with HTTP Streamable transport
-   * Requirements: 1.5, 7.4
+   * Converts a Zod object schema to JSON Schema format
+   * @private
+   */
+  private zodToJsonSchema(zodSchema: any): any {
+    if (!zodSchema || !zodSchema.def) {
+      return { type: 'object', properties: {}, required: [] };
+    }
+
+    const def = zodSchema.def;
+    
+    // Handle object type
+    if (def.type === 'object' && def.shape) {
+      const properties: any = {};
+      const required: string[] = [];
+
+      // Process each property in the shape
+      for (const [key, value] of Object.entries(def.shape)) {
+        const propDef = (value as any).def;
+        
+        // Check if property is optional
+        const isOptional = propDef && propDef.type === 'optional';
+        
+        if (!isOptional) {
+          required.push(key);
+        }
+        
+        // Convert property to JSON Schema
+        properties[key] = this.zodPropertyToJsonSchema(value as any);
+      }
+
+      return {
+        type: 'object',
+        properties,
+        required,
+        additionalProperties: false,
+      };
+    }
+
+    return { type: 'object', properties: {}, required: [] };
+  }
+
+  /**
+   * Converts a single Zod property to JSON Schema
+   * @private
+   */
+  private zodPropertyToJsonSchema(zodProp: any): any {
+    if (!zodProp || !zodProp.def) {
+      return {};
+    }
+
+    const def = zodProp.def;
+
+    // Handle optional wrapper
+    if (def.type === 'optional' && def.innerType) {
+      const innerSchema = this.zodPropertyToJsonSchema(def.innerType);
+      // Preserve description from the optional wrapper if it exists
+      if (zodProp.description && !innerSchema.description) {
+        innerSchema.description = zodProp.description;
+      }
+      return innerSchema;
+    }
+
+    // Handle basic types
+    if (def.type === 'string') {
+      const schema: any = { type: 'string' };
+      if (zodProp.description) schema.description = zodProp.description;
+      if (def.checks) {
+        for (const check of def.checks) {
+          if (check.minLength !== undefined) schema.minLength = check.minLength;
+          if (check.maxLength !== undefined) schema.maxLength = check.maxLength;
+        }
+      }
+      return schema;
+    }
+
+    if (def.type === 'number') {
+      const schema: any = { type: 'number' };
+      if (zodProp.description) schema.description = zodProp.description;
+      if (def.checks) {
+        for (const check of def.checks) {
+          if (check.gt !== undefined) schema.exclusiveMinimum = check.gt;
+          if (check.gte !== undefined) schema.minimum = check.gte;
+          if (check.lt !== undefined) schema.exclusiveMaximum = check.lt;
+          if (check.lte !== undefined) schema.maximum = check.lte;
+        }
+      }
+      return schema;
+    }
+
+    if (def.type === 'array' && def.element) {
+      const schema: any = {
+        type: 'array',
+        items: this.zodPropertyToJsonSchema(def.element),
+      };
+      if (zodProp.description) schema.description = zodProp.description;
+      if (def.checks) {
+        for (const check of def.checks) {
+          if (check.minLength !== undefined) schema.minItems = check.minLength;
+          if (check.maxLength !== undefined) schema.maxItems = check.maxLength;
+        }
+      }
+      return schema;
+    }
+
+    if (def.type === 'object' && def.shape) {
+      const objSchema = this.zodToJsonSchema(zodProp);
+      if (zodProp.description) objSchema.description = zodProp.description;
+      return objSchema;
+    }
+
+    // Fallback: return a basic schema with description if available
+    const schema: any = {};
+    if (zodProp.description) schema.description = zodProp.description;
+    return schema;
+  }
+
+  /**
+   * Gets tool definitions for testing purposes
+   * @private
+   */
+  getToolDefinitions(): Array<{
+    name: string;
+    description: string;
+    inputSchema: any;
+  }> {
+    // Access the internal registered tools from the MCP server
+    const tools = (this.server as any)._registeredTools;
+    
+    if (!tools || typeof tools !== 'object') {
+      return [];
+    }
+
+    // Convert object to array of tool definitions
+    return Object.entries(tools).map(([name, tool]: [string, any]) => {
+      // Convert Zod schema to JSON Schema
+      let inputSchema = { type: 'object', properties: {}, required: [] };
+      
+      if (tool.inputSchema) {
+        inputSchema = this.zodToJsonSchema(tool.inputSchema);
+      }
+      
+      return {
+        name,
+        description: tool.description || '',
+        inputSchema,
+      };
+    });
+  }
+
+  /**
+   * Starts the MCP server
    */
   async start(): Promise<void> {
-    try {
-      await this.server.connect(this.transport);
-      this.logger.info('MCP Thermal Print Server started with Streamable HTTP transport');
-      console.error('MCP Thermal Print Server started with Streamable HTTP transport');
-    } catch (error) {
-      this.logger.error('Failed to start MCP server', error);
-      throw new Error('Failed to start MCP server');
-    }
+    this.logger.info('MCP Thermal Print Server ready');
   }
 
   /**
-   * Returns the transport instance for handling HTTP requests
+   * Connects a transport to the MCP server
    */
-  getTransport(): StreamableHTTPServerTransport {
-    return this.transport;
+  async connectTransport(transport: StreamableHTTPServerTransport): Promise<void> {
+    await this.server.connect(transport);
   }
 
   /**
-   * Returns tool definitions for MCP discovery
-   * Requirements: 1.2, 10.1, 10.2, 10.3, 10.4, 10.5
+   * Creates a new transport (deprecated - use connectTransport instead)
    */
-  private getToolDefinitions(): Tool[] {
-    return [
-      {
-        name: 'send_print_job',
-        description: `Sends a print job to connected thermal printers. This tool validates order data, formats it into Saiposprt format, and broadcasts to all connected print clients via WebSocket.
-
-**Purpose:** Submit orders for thermal printing to connected printer clients.
-
-**Input Example:**
-{
-  "id": 12345,
-  "customer": "João Silva",
-  "address": "Rua das Flores, 123",
-  "items": [
-    { "quantity": 2, "name": "Pizza Margherita", "price": 35.00 },
-    { "quantity": 1, "name": "Refrigerante 2L", "price": 8.00 }
-  ],
-  "deliveryFee": 5.00,
-  "total": 83.00
-}
-
-**Output Format:**
-Success: { "success": true, "jobId": "uuid", "message": "Print job sent successfully to N client(s)", "clientCount": N }
-Validation Error: { "success": false, "error": "error description", "field": "field_name" }
-No Clients: { "success": false, "message": "No printers connected" }
-
-**Error Conditions:**
-- Invalid order ID (must be positive integer)
-- Empty customer name
-- Empty items array
-- Invalid item quantity (must be positive)
-- Invalid item price (must be non-negative)
-- No printer clients connected
-- WebSocket broadcast failure`,
-        inputSchema: {
-          type: 'object',
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Unique order ID (must be a positive integer)',
-            },
-            customer: {
-              type: 'string',
-              description: 'Customer name (cannot be empty)',
-            },
-            address: {
-              type: 'string',
-              description: 'Delivery address (optional)',
-            },
-            items: {
-              type: 'array',
-              description: 'List of items in the order (must have at least one item)',
-              items: {
-                type: 'object',
-                properties: {
-                  quantity: {
-                    type: 'number',
-                    description: 'Quantity of the item (must be positive)',
-                  },
-                  name: {
-                    type: 'string',
-                    description: 'Name/description of the item',
-                  },
-                  price: {
-                    type: 'number',
-                    description: 'Unit price of the item (must be non-negative)',
-                  },
-                },
-                required: ['quantity', 'name', 'price'],
-              },
-            },
-            deliveryFee: {
-              type: 'number',
-              description: 'Delivery/shipping fee (optional, defaults to 0 if not provided)',
-            },
-            total: {
-              type: 'number',
-              description: 'Total order value (OPTIONAL - will be calculated automatically by summing items + deliveryFee. You can omit this field.)',
-            },
-          },
-          required: ['id', 'customer', 'items'],
-        },
+  async createTransport(): Promise<StreamableHTTPServerTransport> {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+      onsessioninitialized: (newSessionId) => {
+        this.logger.info('New MCP session initialized', { sessionId: newSessionId });
+        this.transports.set(newSessionId, transport);
       },
-      {
-        name: 'check_printer_status',
-        description: `Checks the connection status of thermal printer clients. Returns the number of connected clients and their connection details (ID and connection time).
+    });
 
-**Purpose:** Verify printer availability before sending print jobs.
+    await this.server.connect(transport);
 
-**Input Example:**
-{}
+    transport.onclose = () => {
+      const sid = Array.from(this.transports.entries()).find(([_, t]) => t === transport)?.[0];
+      if (sid) {
+        this.logger.info('MCP session closed', { sessionId: sid });
+        this.transports.delete(sid);
+      }
+    };
 
-**Output Format:**
-Success: { "connectedClients": N, "clients": [{ "id": "client-uuid", "connectedAt": "2024-01-15T10:30:00.000Z" }] }
-No Clients: { "connectedClients": 0, "clients": [] }
-
-**Error Conditions:**
-- WebSocket manager not initialized (returns 0 clients)
-- Internal error retrieving status (returns error field with message)`,
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'get_print_history',
-        description: `Retrieves the history of recent print jobs. Returns job details including ID, order ID, customer name, total value, timestamp, status, and client count. Maximum 1000 entries are stored in memory.
-
-**Purpose:** Query recent print job history for monitoring and debugging.
-
-**Input Example:**
-{ "limit": 10 }
-
-**Output Format:**
-Success: {
-  "jobs": [
-    {
-      "id": "job-uuid",
-      "orderId": 12345,
-      "customer": "João Silva",
-      "total": 83.00,
-      "timestamp": "2024-01-15T10:30:00.000Z",
-      "status": "sent",
-      "clientCount": 2
-    }
-  ],
-  "total": 150,
-  "limit": 10
-}
-
-**Error Conditions:**
-- Invalid limit (uses default of 50)
-- Internal error retrieving history (returns empty jobs array with error field)
-
-**Notes:**
-- Default limit: 50 jobs
-- Maximum limit: 1000 jobs
-- History is stored in memory (not persisted)
-- Circular buffer: oldest entries are removed when limit is exceeded`,
-        inputSchema: {
-          type: 'object',
-          properties: {
-            limit: {
-              type: 'number',
-              description: 'Maximum number of jobs to return (default: 50, max: 1000)',
-            },
-          },
-        },
-      },
-    ];
+    return transport;
   }
 
   /**
    * Handles send_print_job tool invocation
-   * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 7.1, 7.2, 7.3, 7.5
    */
-  private async handleSendPrintJob(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async handleSendPrintJob(args: any): Promise<{ content: Array<{ type: "text"; text: string }> }> {
     try {
       this.logger.info('Processing send_print_job request');
       
@@ -319,23 +380,20 @@ Success: {
       const validationResult = this.validator.validateOrderData(args);
       
       if (!validationResult.success) {
-        // Requirement 7.2: Return validation error
         this.logger.warn('Print job validation failed', { 
           error: validationResult.error,
           field: validationResult.field 
         });
         
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                success: false,
-                error: validationResult.error,
-                field: validationResult.field,
-              }),
-            },
-          ],
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: false,
+              error: validationResult.error,
+              field: validationResult.field,
+            }),
+          }],
         };
       }
 
@@ -343,19 +401,16 @@ Success: {
 
       // Check if clients are connected
       if (!this.wsManager || this.wsManager.getClientCount() === 0) {
-        // Requirement 2.5, 7.3: Return error when no clients connected
         this.logger.warn('Print job rejected - no clients connected', { orderId: orderData.id });
         
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                success: false,
-                message: 'No printers connected',
-              }),
-            },
-          ],
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: false,
+              message: 'No printers connected',
+            }),
+          }],
         };
       }
 
@@ -366,7 +421,6 @@ Success: {
       const broadcastResult = this.wsManager.broadcast(formattedData);
 
       if (!broadcastResult.success) {
-        // Add failed job to history
         const job = this.history.add({
           orderId: orderData.id,
           customer: orderData.customer,
@@ -382,16 +436,14 @@ Success: {
         });
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                success: false,
-                message: broadcastResult.error || 'Broadcast failed',
-                jobId: job.id,
-              }),
-            },
-          ],
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: false,
+              message: broadcastResult.error || 'Broadcast failed',
+              jobId: job.id,
+            }),
+          }],
         };
       }
 
@@ -404,7 +456,6 @@ Success: {
         clientCount: broadcastResult.clientCount,
       });
 
-      // Requirement 2.6, 7.1: Return success response
       this.logger.info('Print job sent successfully', { 
         jobId: job.id,
         orderId: orderData.id,
@@ -412,63 +463,54 @@ Success: {
       });
 
       return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              jobId: job.id,
-              message: `Print job sent successfully to ${broadcastResult.clientCount} client(s)`,
-              clientCount: broadcastResult.clientCount,
-            }),
-          },
-        ],
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            jobId: job.id,
+            message: `Print job sent successfully to ${broadcastResult.clientCount} client(s)`,
+            clientCount: broadcastResult.clientCount,
+          }),
+        }],
       };
     } catch (error) {
-      // Requirement 7.5: Handle unexpected errors without exposing internals
       this.logger.error('Unexpected error in send_print_job', error);
       
       return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              success: false,
-              error: 'An unexpected error occurred while processing the print job',
-            }),
-          },
-        ],
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            error: 'An unexpected error occurred while processing the print job',
+          }),
+        }],
       };
     }
   }
 
   /**
    * Handles check_printer_status tool invocation
-   * Requirements: 4.1, 4.2, 4.3, 4.4, 7.5
    */
-  private async handleCheckPrinterStatus(): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async handleCheckPrinterStatus(): Promise<{ content: Array<{ type: "text"; text: string }> }> {
     try {
       this.logger.debug('Processing check_printer_status request');
       
       if (!this.wsManager) {
         this.logger.warn('WebSocket manager not initialized');
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                connectedClients: 0,
-                clients: [],
-              }),
-            },
-          ],
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              connectedClients: 0,
+              clients: [],
+            }),
+          }],
         };
       }
 
       const clientCount = this.wsManager.getClientCount();
       const clients = this.wsManager.getConnectedClients();
 
-      // Format client info for response
       const clientsInfo = clients.map((client) => ({
         id: client.id,
         connectedAt: client.connectedAt.toISOString(),
@@ -477,51 +519,41 @@ Success: {
       this.logger.info('Printer status retrieved', { clientCount });
 
       return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              connectedClients: clientCount,
-              clients: clientsInfo,
-            }),
-          },
-        ],
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            connectedClients: clientCount,
+            clients: clientsInfo,
+          }),
+        }],
       };
     } catch (error) {
-      // Requirement 7.5: Handle errors safely
       this.logger.error('Error retrieving printer status', error);
       
       return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              connectedClients: 0,
-              clients: [],
-              error: 'Failed to retrieve printer status',
-            }),
-          },
-        ],
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            connectedClients: 0,
+            clients: [],
+            error: 'Failed to retrieve printer status',
+          }),
+        }],
       };
     }
   }
 
   /**
    * Handles get_print_history tool invocation
-   * Requirements: 5.1, 5.2, 5.3, 5.4, 7.5
    */
-  private async handleGetPrintHistory(args: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
+  private async handleGetPrintHistory(args: any): Promise<{ content: Array<{ type: "text"; text: string }> }> {
     try {
       this.logger.debug('Processing get_print_history request');
       
-      // Extract and validate limit parameter
-      const argsObj = (args as { limit?: number }) || {};
-      let limit = argsObj.limit !== undefined ? argsObj.limit : 50;
+      let limit = args.limit !== undefined ? args.limit : 50;
 
-      // Validate limit
       const limitValidation = this.validator.validateHistoryLimit(limit);
       if (!limitValidation.success) {
-        // Use default if validation fails
         this.logger.warn('Invalid history limit, using default', { 
           providedLimit: limit,
           defaultLimit: 50 
@@ -531,10 +563,8 @@ Success: {
         limit = limitValidation.data as number;
       }
 
-      // Get recent jobs
       const jobs = this.history.getRecent(limit);
 
-      // Format jobs for response
       const jobsInfo = jobs.map((job) => ({
         id: job.id,
         orderId: job.orderId,
@@ -551,33 +581,28 @@ Success: {
       });
 
       return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              jobs: jobsInfo,
-              total: this.history.getCount(),
-              limit: limit,
-            }),
-          },
-        ],
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            jobs: jobsInfo,
+            total: this.history.getCount(),
+            limit: limit,
+          }),
+        }],
       };
     } catch (error) {
-      // Requirement 7.5: Handle errors safely
       this.logger.error('Error retrieving print history', error);
       
       return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              jobs: [],
-              total: 0,
-              limit: 50,
-              error: 'Failed to retrieve print history',
-            }),
-          },
-        ],
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            jobs: [],
+            total: 0,
+            limit: 50,
+            error: 'Failed to retrieve print history',
+          }),
+        }],
       };
     }
   }
