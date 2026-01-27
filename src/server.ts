@@ -75,102 +75,67 @@ export class MCPThermalPrintServer {
    */
   async initialize(): Promise<void> {
     try {
-      // Register send_print_job tool
+      // Register send_print_job tool - Emitir Pedido
       this.server.tool(
-        'send_print_job',
-        `Sends a print job to connected thermal printers. Validates order data, formats it into Saiposprt format, and broadcasts to all connected print clients via WebSocket.
+        'emitir_pedido',
+        `Emite um pedido para impressão na impressora térmica da pizzaria. Valida os dados do pedido, valor total do pedido é calculado automaticamente somando (quantidade × preço) de cada item + taxa de entrega.
 
-Output Format:
+IMPORTANTE - Como Informar Pizzas:
+
+1. PIZZA INTEIRA (um sabor):
+   - name: "Pizza Calabresa Grande"
+   - name: "Pizza Mussarela Grande"
+   - Todas as pizzas são tamanho Grande
+   
+2. PIZZA METADE/METADE (dois sabores):
+   - name: "Pizza Calabresa/Mussarela Grande"
+   - name: "Pizza Portuguesa/Frango Grande"
+   - Formato: "Pizza Sabor1/Sabor2 Grande"
+   - Use barra (/) para separar os dois sabores
+   - Todas as pizzas são tamanho Grande
+   
+Exemplos de Itens:
+- Pizza inteira: {"quantity": 1, "name": "Pizza Calabresa Grande", "price": 45.00}
+- Pizza metade: {"quantity": 1, "name": "Pizza Calabresa/Mussarela Grande", "price": 45.00}
+- Bebida: {"quantity": 2, "name": "Refrigerante 2L", "price": 10.00}
+
+Formato de Saída:
 {
   "success": true,
   "jobId": "uuid-string",
-  "message": "Print job sent successfully to N client(s)",
+  "message": "Pedido enviado com sucesso para N impressora(s)",
   "clientCount": N
 }
 
-Error Conditions:
-- Returns success: false if validation fails
-- Returns success: false if no printers are connected
-- Returns error field with validation details on failure
+Condições de Erro:
+- Retorna success: false se a validação falhar
+- Retorna success: false se não houver impressoras conectadas
+- Retorna campo error com detalhes da validação em caso de falha
 
-Example:
-Input: { "id": 123, "customer": "John Doe", "items": [{"quantity": 2, "name": "Pizza", "price": 15.00}], "total": 30.00 }
-Output: { "success": true, "jobId": "abc-123", "message": "Print job sent successfully to 1 client(s)", "clientCount": 1 }`,
+Exemplo Completo:
+Entrada: {
+  "id": 123,
+  "customer": "João Silva",
+  "items": [
+    {"quantity": 1, "name": "Pizza Calabresa Grande", "price": 45.00},
+    {"quantity": 1, "name": "Pizza Portuguesa/Frango Grande", "price": 45.00},
+    {"quantity": 1, "name": "Refrigerante 2L", "price": 10.00}
+  ],
+  "deliveryFee": 8.00
+}
+Saída: { "success": true, "jobId": "abc-123", "message": "Pedido enviado com sucesso para 1 impressora(s)", "clientCount": 1 }`,
         {
-          id: z.number().positive().describe('Unique order ID (must be a positive integer)'),
-          customer: z.string().min(1).describe('Customer name (cannot be empty)'),
-          address: z.string().optional().describe('Delivery address (optional)'),
+          id: z.number().positive().describe('ID único do pedido (deve ser um número inteiro positivo)'),
+          customer: z.string().min(1).describe('Nome do cliente (não pode estar vazio)'),
+          address: z.string().optional().describe('Endereço de entrega (opcional)'),
           items: z.array(z.object({
-            quantity: z.number().positive().describe('Quantity of the item (must be positive)'),
-            name: z.string().describe('Name/description of the item'),
-            price: z.number().nonnegative().describe('Unit price of the item (must be non-negative)'),
-          })).min(1).describe('List of items in the order (must have at least one item)'),
-          deliveryFee: z.number().nonnegative().optional().describe('Delivery/shipping fee (optional, defaults to 0)'),
-          total: z.number().nonnegative().optional().describe('Total order value (OPTIONAL - will be calculated automatically)'),
+            quantity: z.number().positive().describe('Quantidade do item (deve ser positivo)'),
+            name: z.string().describe('Nome do item. Para pizzas inteiras use "Pizza Sabor Grande" (ex: Pizza Calabresa Grande). Para pizzas metade/metade use "Pizza Sabor1/Sabor2 Grande" (ex: Pizza Calabresa/Mussarela Grande). Todas as pizzas são tamanho Grande. Para outros itens use o nome normal (ex: Refrigerante 2L)'),
+            price: z.number().nonnegative().describe('Preço unitário do item (deve ser não-negativo)'),
+          })).min(1).describe('Lista de itens do pedido (deve ter pelo menos um item)'),
+          deliveryFee: z.number().nonnegative().optional().describe('Taxa de entrega em reais (opcional, padrão é 0 para retirada no local)'),
         },
         async (args) => await this.handleSendPrintJob(args)
-      );
-
-      // Register check_printer_status tool
-      this.server.tool(
-        'check_printer_status',
-        `Checks the connection status of thermal printer clients. Returns the number of connected clients and their connection details.
-
-Output Format:
-{
-  "connectedClients": N,
-  "clients": [
-    {
-      "id": "uuid-string",
-      "connectedAt": "ISO-8601-timestamp"
-    }
-  ]
-}
-
-Error Conditions:
-- Returns connectedClients: 0 if WebSocket manager is not initialized
-- Returns error field if status retrieval fails
-
-Example:
-Output: { "connectedClients": 2, "clients": [{"id": "abc-123", "connectedAt": "2024-01-01T00:00:00.000Z"}] }`,
-        {},
-        async () => await this.handleCheckPrinterStatus()
-      );
-
-      // Register get_print_history tool
-      this.server.tool(
-        'get_print_history',
-        `Retrieves the history of recent print jobs. Returns job details including ID, order ID, customer name, total value, timestamp, status, and client count.
-
-Output Format:
-{
-  "jobs": [
-    {
-      "id": "uuid-string",
-      "orderId": number,
-      "customer": "string",
-      "total": number,
-      "timestamp": "ISO-8601-timestamp",
-      "status": "sent" | "failed",
-      "clientCount": number
-    }
-  ],
-  "total": number,
-  "limit": number
-}
-
-Error Conditions:
-- Returns empty jobs array if no history exists
-- Returns error field if history retrieval fails
-- Invalid limit values are replaced with default (50)
-
-Example:
-Input: { "limit": 10 }
-Output: { "jobs": [...], "total": 100, "limit": 10 }`,
-        {
-          limit: z.number().min(1).max(1000).optional().describe('Maximum number of jobs to return (default: 50, max: 1000)'),
-        },
-        async (args) => await this.handleGetPrintHistory(args)
       );
 
       this.logger.info('MCP server tools registered successfully');
@@ -408,7 +373,7 @@ Output: { "jobs": [...], "total": 100, "limit": 10 }`,
             type: 'text',
             text: JSON.stringify({
               success: false,
-              message: 'No printers connected',
+              message: 'Nenhuma impressora conectada',
             }),
           }],
         };
@@ -440,7 +405,7 @@ Output: { "jobs": [...], "total": 100, "limit": 10 }`,
             type: 'text',
             text: JSON.stringify({
               success: false,
-              message: broadcastResult.error || 'Broadcast failed',
+              message: broadcastResult.error || 'Falha ao enviar pedido',
               jobId: job.id,
             }),
           }],
@@ -468,7 +433,7 @@ Output: { "jobs": [...], "total": 100, "limit": 10 }`,
           text: JSON.stringify({
             success: true,
             jobId: job.id,
-            message: `Print job sent successfully to ${broadcastResult.clientCount} client(s)`,
+            message: `Pedido enviado com sucesso para ${broadcastResult.clientCount} impressora(s)`,
             clientCount: broadcastResult.clientCount,
           }),
         }],
@@ -481,129 +446,11 @@ Output: { "jobs": [...], "total": 100, "limit": 10 }`,
           type: 'text',
           text: JSON.stringify({
             success: false,
-            error: 'An unexpected error occurred while processing the print job',
-          }),
-        }],
-      };
-    }
-  }
-
-  /**
-   * Handles check_printer_status tool invocation
-   */
-  private async handleCheckPrinterStatus(): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-    try {
-      this.logger.debug('Processing check_printer_status request');
-      
-      if (!this.wsManager) {
-        this.logger.warn('WebSocket manager not initialized');
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              connectedClients: 0,
-              clients: [],
-            }),
-          }],
-        };
-      }
-
-      const clientCount = this.wsManager.getClientCount();
-      const clients = this.wsManager.getConnectedClients();
-
-      const clientsInfo = clients.map((client) => ({
-        id: client.id,
-        connectedAt: client.connectedAt.toISOString(),
-      }));
-
-      this.logger.info('Printer status retrieved', { clientCount });
-
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            connectedClients: clientCount,
-            clients: clientsInfo,
-          }),
-        }],
-      };
-    } catch (error) {
-      this.logger.error('Error retrieving printer status', error);
-      
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            connectedClients: 0,
-            clients: [],
-            error: 'Failed to retrieve printer status',
-          }),
-        }],
-      };
-    }
-  }
-
-  /**
-   * Handles get_print_history tool invocation
-   */
-  private async handleGetPrintHistory(args: any): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-    try {
-      this.logger.debug('Processing get_print_history request');
-      
-      let limit = args.limit !== undefined ? args.limit : 50;
-
-      const limitValidation = this.validator.validateHistoryLimit(limit);
-      if (!limitValidation.success) {
-        this.logger.warn('Invalid history limit, using default', { 
-          providedLimit: limit,
-          defaultLimit: 50 
-        });
-        limit = 50;
-      } else {
-        limit = limitValidation.data as number;
-      }
-
-      const jobs = this.history.getRecent(limit);
-
-      const jobsInfo = jobs.map((job) => ({
-        id: job.id,
-        orderId: job.orderId,
-        customer: job.customer,
-        total: job.total,
-        timestamp: job.timestamp.toISOString(),
-        status: job.status,
-        clientCount: job.clientCount,
-      }));
-
-      this.logger.info('Print history retrieved', { 
-        jobCount: jobs.length,
-        limit 
-      });
-
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            jobs: jobsInfo,
-            total: this.history.getCount(),
-            limit: limit,
-          }),
-        }],
-      };
-    } catch (error) {
-      this.logger.error('Error retrieving print history', error);
-      
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            jobs: [],
-            total: 0,
-            limit: 50,
-            error: 'Failed to retrieve print history',
+            error: 'Ocorreu um erro inesperado ao processar o pedido',
           }),
         }],
       };
     }
   }
 }
+

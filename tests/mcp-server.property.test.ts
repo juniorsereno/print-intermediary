@@ -47,13 +47,11 @@ describe('MCP Server Property Tests', () => {
       const tools = getToolDefinitions();
 
       // Should have exactly 3 tools
-      expect(tools).toHaveLength(3);
+      expect(tools).toHaveLength(1);
 
       // Verify tool names
       const toolNames = tools.map((t: any) => t.name);
-      expect(toolNames).toContain('send_print_job');
-      expect(toolNames).toContain('check_printer_status');
-      expect(toolNames).toContain('get_print_history');
+      expect(toolNames).toContain('emitir_pedido');
 
       // Verify each tool has required properties
       tools.forEach((tool: any) => {
@@ -88,8 +86,8 @@ describe('MCP Server Property Tests', () => {
         expect(schema.properties).toBeDefined();
         expect(typeof schema.properties).toBe('object');
         
-        // Verify send_print_job has required fields
-        if (tool.name === 'send_print_job') {
+        // Verify emitir_pedido has required fields
+        if (tool.name === 'emitir_pedido') {
           expect(schema.required).toContain('id');
           expect(schema.required).toContain('customer');
           expect(schema.required).toContain('items');
@@ -97,7 +95,10 @@ describe('MCP Server Property Tests', () => {
           expect(schema.properties.id).toBeDefined();
           expect(schema.properties.customer).toBeDefined();
           expect(schema.properties.items).toBeDefined();
-          expect(schema.properties.total).toBeDefined();
+          expect(schema.properties.deliveryFee).toBeDefined();
+          
+          // Total should NOT be in the schema (calculated automatically)
+          expect(schema.properties.total).toBeUndefined();
         }
       });
     });
@@ -161,65 +162,6 @@ describe('MCP Server Property Tests', () => {
     });
   });
 
-  describe('Property 10: Printer Status Client Count Accuracy', () => {
-    /**
-     * Feature: mcp-thermal-print-server, Property 10: Printer Status Client Count Accuracy
-     * Validates: Requirements 4.2
-     */
-    it('should return accurate client count', async () => {
-      await mcpServer.initialize();
-
-      const handleCheckPrinterStatus = (mcpServer as any).handleCheckPrinterStatus.bind(mcpServer);
-      const response = await handleCheckPrinterStatus();
-
-      expect(response).toHaveProperty('content');
-      expect(Array.isArray(response.content)).toBe(true);
-      expect(response.content[0]).toHaveProperty('type');
-      expect(response.content[0]).toHaveProperty('text');
-
-      const result = JSON.parse(response.content[0].text);
-      expect(result).toHaveProperty('connectedClients');
-      expect(typeof result.connectedClients).toBe('number');
-      expect(result.connectedClients).toBeGreaterThanOrEqual(0);
-
-      // Should match WebSocket manager count
-      const actualCount = wsManager.getClientCount();
-      expect(result.connectedClients).toBe(actualCount);
-    });
-  });
-
-  describe('Property 11: Printer Status Client Details Completeness', () => {
-    /**
-     * Feature: mcp-thermal-print-server, Property 11: Printer Status Client Details Completeness
-     * Validates: Requirements 4.3
-     */
-    it('should include id and connectedAt for each client', async () => {
-      await mcpServer.initialize();
-
-      const handleCheckPrinterStatus = (mcpServer as any).handleCheckPrinterStatus.bind(mcpServer);
-      const response = await handleCheckPrinterStatus();
-
-      const result = JSON.parse(response.content[0].text);
-      expect(result).toHaveProperty('clients');
-      expect(Array.isArray(result.clients)).toBe(true);
-
-      // Each client should have required fields
-      result.clients.forEach((client: any) => {
-        expect(client).toHaveProperty('id');
-        expect(client).toHaveProperty('connectedAt');
-        
-        expect(typeof client.id).toBe('string');
-        expect(client.id.length).toBeGreaterThan(0);
-        expect(client.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
-        
-        expect(typeof client.connectedAt).toBe('string');
-        // Should be valid ISO 8601 timestamp
-        expect(() => new Date(client.connectedAt)).not.toThrow();
-        expect(new Date(client.connectedAt).toISOString()).toBe(client.connectedAt);
-      });
-    });
-  });
-
   describe('Property 19: Tool Documentation Completeness', () => {
     /**
      * Feature: mcp-thermal-print-server, Property 19: Tool Documentation Completeness
@@ -236,53 +178,52 @@ describe('MCP Server Property Tests', () => {
       const getToolDefinitions = (mcpServer as any).getToolDefinitions.bind(mcpServer);
       const tools = getToolDefinitions();
 
-      // Property: For any tool, it must have complete documentation
-      fc.assert(
-        fc.property(
-          fc.constantFrom(...tools),
-          (tool: any) => {
-            // Requirement 10.1: Each tool must have a non-empty description
-            expect(tool.description).toBeDefined();
-            expect(typeof tool.description).toBe('string');
-            expect(tool.description.length).toBeGreaterThan(0);
+      // Verify each tool has complete documentation
+      tools.forEach((tool: any) => {
+        // Requirement 10.1: Each tool must have a non-empty description
+        expect(tool.description).toBeDefined();
+        expect(typeof tool.description).toBe('string');
+        expect(tool.description.length).toBeGreaterThan(0);
 
-            // Requirement 10.2: Each tool must have a valid JSON schema for input
-            expect(tool.inputSchema).toBeDefined();
-            expect(typeof tool.inputSchema).toBe('object');
-            expect(tool.inputSchema.type).toBe('object');
-            expect(tool.inputSchema.properties).toBeDefined();
+        // Requirement 10.2: Each tool must have a valid JSON schema for input
+        expect(tool.inputSchema).toBeDefined();
+        expect(typeof tool.inputSchema).toBe('object');
+        expect(tool.inputSchema.type).toBe('object');
+        expect(tool.inputSchema.properties).toBeDefined();
 
-            // Requirement 10.4: Description should document output format
-            // Check for output format indicators in description
-            const descLower = tool.description.toLowerCase();
-            const hasOutputDocs = 
-              descLower.includes('output') || 
-              descLower.includes('return') || 
-              descLower.includes('response') ||
-              descLower.includes('format:');
-            
-            expect(hasOutputDocs).toBe(true);
+        // Requirement 10.4: Description should document output format
+        // Check for output format indicators in description
+        const descLower = tool.description.toLowerCase();
+        const hasOutputDocs = 
+          descLower.includes('output') || 
+          descLower.includes('return') || 
+          descLower.includes('response') ||
+          descLower.includes('saída') ||
+          descLower.includes('formato');
+        
+        expect(hasOutputDocs).toBe(true);
 
-            // Additional checks for comprehensive documentation
-            // Description should include examples or format information
-            const hasExamples = 
-              descLower.includes('example') || 
-              descLower.includes('{') || // JSON example
-              descLower.includes('success:');
-            
-            expect(hasExamples).toBe(true);
+        // Additional checks for comprehensive documentation
+        // Description should include examples or format information
+        const hasExamples = 
+          descLower.includes('example') || 
+          descLower.includes('exemplo') ||
+          descLower.includes('{') || // JSON example
+          descLower.includes('success:');
+        
+        expect(hasExamples).toBe(true);
 
-            // Description should document error conditions
-            const hasErrorDocs = 
-              descLower.includes('error') || 
-              descLower.includes('fail') ||
-              descLower.includes('condition');
-            
-            expect(hasErrorDocs).toBe(true);
-          }
-        ),
-        { numRuns: tools.length } // Run once for each tool
-      );
+        // Description should document error conditions
+        const hasErrorDocs = 
+          descLower.includes('error') || 
+          descLower.includes('erro') ||
+          descLower.includes('fail') ||
+          descLower.includes('falha') ||
+          descLower.includes('condition') ||
+          descLower.includes('condições');
+        
+        expect(hasErrorDocs).toBe(true);
+      });
     });
 
     it('should document input parameters with descriptions', async () => {
@@ -324,33 +265,16 @@ describe('MCP Server Property Tests', () => {
         return acc;
       }, {});
 
-      // Verify send_print_job documentation
-      const sendPrintJob = toolsByName['send_print_job'];
-      expect(sendPrintJob).toBeDefined();
-      expect(sendPrintJob.description).toContain('print job');
-      expect(sendPrintJob.description).toContain('Output Format');
-      expect(sendPrintJob.description).toContain('Error Conditions');
-      expect(sendPrintJob.description).toContain('Example');
-      expect(sendPrintJob.inputSchema.required).toContain('id');
-      expect(sendPrintJob.inputSchema.required).toContain('customer');
-      expect(sendPrintJob.inputSchema.required).toContain('items');
-
-      // Verify check_printer_status documentation
-      const checkStatus = toolsByName['check_printer_status'];
-      expect(checkStatus).toBeDefined();
-      expect(checkStatus.description).toContain('status');
-      expect(checkStatus.description).toContain('Output Format');
-      expect(checkStatus.description).toContain('Error Conditions');
-
-      // Verify get_print_history documentation
-      const getHistory = toolsByName['get_print_history'];
-      expect(getHistory).toBeDefined();
-      expect(getHistory.description).toContain('history');
-      expect(getHistory.description).toContain('Output Format');
-      expect(getHistory.description).toContain('Error Conditions');
-      expect(getHistory.inputSchema.properties.limit).toBeDefined();
-      expect(getHistory.inputSchema.properties.limit.description).toContain('default');
-      expect(getHistory.inputSchema.properties.limit.description).toContain('max');
+      // Verify emitir_pedido documentation
+      const emitirPedido = toolsByName['emitir_pedido'];
+      expect(emitirPedido).toBeDefined();
+      expect(emitirPedido.description).toContain('pedido');
+      expect(emitirPedido.description).toContain('Formato de Saída');
+      expect(emitirPedido.description).toContain('Condições de Erro');
+      expect(emitirPedido.description).toContain('Exemplo');
+      expect(emitirPedido.inputSchema.required).toContain('id');
+      expect(emitirPedido.inputSchema.required).toContain('customer');
+      expect(emitirPedido.inputSchema.required).toContain('items');
     });
   });
 });
