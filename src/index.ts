@@ -55,6 +55,7 @@ async function startServer() {
     });
     mcpServer.setWebSocketManager(wsManager);
     await mcpServer.initialize();
+    await mcpServer.start();
 
     // Initialize WebSocket
     wsManager.initialize();
@@ -115,8 +116,18 @@ async function startServer() {
     // Legacy print endpoint
     app.post('/api/print', (req, res) => legacyHandler.handlePrintRequest(req, res));
 
-    // MCP endpoint - must be registered after other routes
-    await mcpServer.start('/mcp', app);
+    // MCP endpoint - handles both GET (SSE) and POST (messages)
+    const mcpTransport = mcpServer.getTransport();
+    app.all('/mcp', async (req, res) => {
+      try {
+        await mcpTransport.handleRequest(req, res);
+      } catch (error) {
+        logger.error('MCP request handling error', error);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Internal server error' });
+        }
+      }
+    });
     logger.info('MCP server initialized on /mcp endpoint');
 
     // Root endpoint - redirect to client page

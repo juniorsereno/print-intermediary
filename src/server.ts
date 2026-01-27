@@ -4,8 +4,9 @@
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 7.1, 7.2, 7.3, 7.4, 7.5
  */
 
+import crypto from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -35,6 +36,7 @@ export interface MCPServerConfig {
  */
 export class MCPThermalPrintServer {
   private server: Server;
+  private transport: StreamableHTTPServerTransport;
   private validator: DataValidator;
   private formatter: SaiposFormatter;
   private wsManager: WebSocketManager | null;
@@ -42,6 +44,11 @@ export class MCPThermalPrintServer {
   private logger: Logger;
 
   constructor(config: MCPServerConfig) {
+    // Initialize transport first
+    this.transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+    });
+
     this.server = new Server(
       {
         name: config.name,
@@ -123,21 +130,25 @@ export class MCPThermalPrintServer {
   }
 
   /**
-   * Starts the MCP server with HTTP SSE transport
+   * Starts the MCP server with HTTP Streamable transport
    * Requirements: 1.5, 7.4
-   * @param endpoint - The HTTP endpoint path for MCP (default: '/mcp')
-   * @param expressApp - Express application instance
    */
-  async start(endpoint: string, expressApp: any): Promise<void> {
+  async start(): Promise<void> {
     try {
-      const transport = new SSEServerTransport(endpoint, expressApp);
-      await this.server.connect(transport);
-      this.logger.info('MCP Thermal Print Server started', { endpoint });
-      console.error(`MCP Thermal Print Server started on ${endpoint}`);
+      await this.server.connect(this.transport);
+      this.logger.info('MCP Thermal Print Server started with Streamable HTTP transport');
+      console.error('MCP Thermal Print Server started with Streamable HTTP transport');
     } catch (error) {
       this.logger.error('Failed to start MCP server', error);
       throw new Error('Failed to start MCP server');
     }
+  }
+
+  /**
+   * Returns the transport instance for handling HTTP requests
+   */
+  getTransport(): StreamableHTTPServerTransport {
+    return this.transport;
   }
 
   /**
