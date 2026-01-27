@@ -83,28 +83,28 @@ export class MCPThermalPrintServer {
 IMPORTANTE - Como Informar Pizzas:
 
 1. PIZZA INTEIRA (um sabor):
-   - name: "Pizza Calabresa Grande"
-   - name: "Pizza Mussarela Grande"
+   - name: Pizza Calabresa Grande
+   - name: Pizza Mussarela Grande
    - Todas as pizzas são tamanho Grande
    
 2. PIZZA METADE/METADE (dois sabores):
-   - name: "Pizza Calabresa/Mussarela Grande"
-   - name: "Pizza Portuguesa/Frango Grande"
-   - Formato: "Pizza Sabor1/Sabor2 Grande"
+   - name: Pizza Calabresa/Mussarela Grande
+   - name: Pizza Portuguesa/Frango Grande
+   - Formato: Pizza Sabor1/Sabor2 Grande
    - Use barra (/) para separar os dois sabores
    - Todas as pizzas são tamanho Grande
    
 Exemplos de Itens:
-- Pizza inteira: {"quantity": 1, "name": "Pizza Calabresa Grande", "price": 45.00}
-- Pizza metade: {"quantity": 1, "name": "Pizza Calabresa/Mussarela Grande", "price": 45.00}
-- Bebida: {"quantity": 2, "name": "Refrigerante 2L", "price": 10.00}
+- Pizza inteira: {quantity: 1, name: Pizza Calabresa Grande, price: 45.00}
+- Pizza metade: {quantity: 1, name: Pizza Calabresa/Mussarela Grande, price: 45.00}
+- Bebida: {quantity: 2, name: Refrigerante 2L, price: 10.00}
 
 Formato de Saída:
 {
-  "success": true,
-  "jobId": "uuid-string",
-  "message": "Pedido enviado com sucesso para N impressora(s)",
-  "clientCount": N
+  success: true,
+  jobId: uuid-string,
+  message: Pedido enviado com sucesso para N impressora(s),
+  clientCount: N
 }
 
 Condições de Erro:
@@ -114,23 +114,23 @@ Condições de Erro:
 
 Exemplo Completo:
 Entrada: {
-  "id": 123,
-  "customer": "João Silva",
-  "items": [
-    {"quantity": 1, "name": "Pizza Calabresa Grande", "price": 45.00},
-    {"quantity": 1, "name": "Pizza Portuguesa/Frango Grande", "price": 45.00},
-    {"quantity": 1, "name": "Refrigerante 2L", "price": 10.00}
+  id: 123,
+  customer: João Silva,
+  items: [
+    {quantity: 1, name: Pizza Calabresa Grande, price: 45.00},
+    {quantity: 1, name: Pizza Portuguesa/Frango Grande, price: 45.00},
+    {quantity: 1, name: Refrigerante 2L, price: 10.00}
   ],
-  "deliveryFee": 8.00
+  deliveryFee: 8.00
 }
-Saída: { "success": true, "jobId": "abc-123", "message": "Pedido enviado com sucesso para 1 impressora(s)", "clientCount": 1 }`,
+Saída: {success: true, jobId: abc-123, message: Pedido enviado com sucesso para 1 impressora(s), clientCount: 1}`,
         {
           id: z.number().positive().describe('ID único do pedido (deve ser um número inteiro positivo)'),
           customer: z.string().min(1).describe('Nome do cliente (não pode estar vazio)'),
           address: z.string().optional().describe('Endereço de entrega (opcional)'),
           items: z.array(z.object({
             quantity: z.number().positive().describe('Quantidade do item (deve ser positivo)'),
-            name: z.string().describe('Nome do item. Para pizzas inteiras use "Pizza Sabor Grande" (ex: Pizza Calabresa Grande). Para pizzas metade/metade use "Pizza Sabor1/Sabor2 Grande" (ex: Pizza Calabresa/Mussarela Grande). Todas as pizzas são tamanho Grande. Para outros itens use o nome normal (ex: Refrigerante 2L)'),
+            name: z.string().describe('Nome do item. Para pizzas inteiras use Pizza Sabor Grande (ex: Pizza Calabresa Grande). Para pizzas metade/metade use Pizza Sabor1/Sabor2 Grande (ex: Pizza Calabresa/Mussarela Grande). Todas as pizzas são tamanho Grande. Para outros itens use o nome normal (ex: Refrigerante 2L)'),
             price: z.number().nonnegative().describe('Preço unitário do item (deve ser não-negativo)'),
           })).min(1).describe('Lista de itens do pedido (deve ter pelo menos um item)'),
           deliveryFee: z.number().nonnegative().optional().describe('Taxa de entrega em reais (opcional, padrão é 0 para retirada no local)'),

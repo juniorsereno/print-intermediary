@@ -10,7 +10,8 @@
     "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', '755')\"",
     "test": "vitest --run",
     "test:watch": "vitest",
-    "test:coverage": "vitest --run --coverage"
+    "test:coverage": "vitest --run --coverage",
+    "verify-schema": "node verify-schema.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
