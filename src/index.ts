@@ -68,13 +68,29 @@ async function startServer() {
     // CORS middleware for MCP endpoint
     app.use('/mcp', (req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID');
       
       if (req.method === 'OPTIONS') {
         res.sendStatus(200);
         return;
       }
+      
+      // Fix Accept header for n8n compatibility
+      // n8n may not send the correct Accept header, so we add it if missing
+      if (req.method === 'POST' && req.headers.accept) {
+        const accept = req.headers.accept;
+        if (!accept.includes('text/event-stream')) {
+          req.headers.accept = `${accept}, text/event-stream`;
+        }
+        if (!accept.includes('application/json')) {
+          req.headers.accept = `application/json, ${req.headers.accept}`;
+        }
+      } else if (req.method === 'POST' && !req.headers.accept) {
+        // If no Accept header at all, add the required one
+        req.headers.accept = 'application/json, text/event-stream';
+      }
+      
       next();
     });
 
