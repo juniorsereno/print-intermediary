@@ -100,15 +100,15 @@ Outros itens:
 - Exemplo: Refrigerante 2L
 - Exemplo: Suco Natural 500ml`,
         {
-          id: z.number().positive().describe('ID único do pedido (deve ser um número inteiro positivo)'),
+          id: z.number().int().min(1).describe('ID único do pedido (deve ser um número inteiro positivo)'),
           customer: z.string().min(1).describe('Nome do cliente (não pode estar vazio)'),
           address: z.string().optional().describe('Endereço de entrega (opcional)'),
           items: z.array(z.object({
-            quantity: z.number().positive().describe('Quantidade do item (deve ser positivo)'),
+            quantity: z.number().min(1).describe('Quantidade do item (deve ser positivo)'),
             name: z.string().describe('Nome do item. Para pizzas inteiras use Pizza Sabor Grande (ex: Pizza Calabresa Grande). Para pizzas metade/metade use Pizza Sabor1/Sabor2 Grande (ex: Pizza Calabresa/Mussarela Grande). Todas as pizzas são tamanho Grande. Para outros itens use o nome normal (ex: Refrigerante 2L)'),
-            price: z.number().nonnegative().describe('Preço unitário do item (deve ser não-negativo)'),
+            price: z.number().min(0).describe('Preço unitário do item (deve ser não-negativo)'),
           })).min(1).describe('Lista de itens do pedido (deve ter pelo menos um item)'),
-          deliveryFee: z.number().nonnegative().optional().describe('Taxa de entrega em reais (opcional, padrão é 0 para retirada no local)'),
+          deliveryFee: z.number().min(0).optional().describe('Taxa de entrega em reais (opcional, padrão é 0 para retirada no local)'),
         },
         async (args) => await this.handleSendPrintJob(args)
       );
