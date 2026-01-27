@@ -226,10 +226,20 @@ Saída: { "success": true, "jobId": "abc-123", "message": "Pedido enviado com su
       if (zodProp.description) schema.description = zodProp.description;
       if (def.checks) {
         for (const check of def.checks) {
-          if (check.gt !== undefined) schema.exclusiveMinimum = check.gt;
-          if (check.gte !== undefined) schema.minimum = check.gte;
-          if (check.lt !== undefined) schema.exclusiveMaximum = check.lt;
-          if (check.lte !== undefined) schema.maximum = check.lte;
+          // Use minimum/maximum instead of exclusiveMinimum/exclusiveMaximum for Gemini compatibility
+          // For gt (greater than), we use minimum with the value (Gemini doesn't support exclusive)
+          if (check.gt !== undefined) {
+            schema.minimum = check.gt;
+          }
+          if (check.gte !== undefined) {
+            schema.minimum = check.gte;
+          }
+          if (check.lt !== undefined) {
+            schema.maximum = check.lt;
+          }
+          if (check.lte !== undefined) {
+            schema.maximum = check.lte;
+          }
         }
       }
       return schema;
