@@ -63,36 +63,7 @@ async function startServer() {
 
     // Middleware
     app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
-
-    // CORS middleware for MCP endpoint
-    app.use('/mcp', (req, res, next) => {
-      res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID');
-      
-      if (req.method === 'OPTIONS') {
-        res.sendStatus(200);
-        return;
-      }
-      
-      // Fix Accept header for n8n compatibility
-      // n8n may not send the correct Accept header, so we add it if missing
-      if (req.method === 'POST' && req.headers.accept) {
-        const accept = req.headers.accept;
-        if (!accept.includes('text/event-stream')) {
-          req.headers.accept = `${accept}, text/event-stream`;
-        }
-        if (!accept.includes('application/json')) {
-          req.headers.accept = `application/json, ${req.headers.accept}`;
-        }
-      } else if (req.method === 'POST' && !req.headers.accept) {
-        // If no Accept header at all, add the required one
-        req.headers.accept = 'application/json, text/event-stream';
-      }
-      
-      next();
-    });
+    app.use(express.urlencoded({ extended: true}));
 
     // Serve static files from public directory
     const publicPath = path.join(__dirname, '../public');
@@ -147,9 +118,39 @@ async function startServer() {
 
     // MCP endpoint - handles both GET (SSE) and POST (messages)
     const mcpTransport = mcpServer.getTransport();
+    
+    // Wrapper to fix Accept header for n8n compatibility
     app.all('/mcp', async (req, res) => {
       try {
-        await mcpTransport.handleRequest(req, res);
+        // Set CORS headers
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID');
+        
+        // Handle OPTIONS preflight
+        if (req.method === 'OPTIONS') {
+          res.sendStatus(200);
+          return;
+        }
+        
+        // Fix Accept header for POST requests
+        if (req.method === 'POST') {
+          const accept = req.headers.accept || '';
+          if (!accept.includes('text/event-stream') || !accept.includes('application/json')) {
+            req.headers.accept = 'application/json, text/event-stream';
+          }
+        }
+        
+        // Fix Accept header for GET requests (SSE)
+        if (req.method === 'GET') {
+          const accept = req.headers.accept || '';
+          if (!accept.includes('text/event-stream')) {
+            req.headers.accept = 'text/event-stream';
+          }
+        }
+        
+        // Handle the request with the transport
+        await mcpTransport.handleRequest(req, res, req.body);
       } catch (error) {
         logger.error('MCP request handling error', error);
         if (!res.headersSent) {
