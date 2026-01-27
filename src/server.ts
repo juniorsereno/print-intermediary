@@ -5,7 +5,7 @@
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -123,15 +123,17 @@ export class MCPThermalPrintServer {
   }
 
   /**
-   * Starts the MCP server
+   * Starts the MCP server with HTTP SSE transport
    * Requirements: 1.5, 7.4
+   * @param endpoint - The HTTP endpoint path for MCP (default: '/mcp')
+   * @param expressApp - Express application instance
    */
-  async start(): Promise<void> {
+  async start(endpoint: string, expressApp: any): Promise<void> {
     try {
-      const transport = new StdioServerTransport();
+      const transport = new SSEServerTransport(endpoint, expressApp);
       await this.server.connect(transport);
-      this.logger.info('MCP Thermal Print Server started');
-      console.error('MCP Thermal Print Server started');
+      this.logger.info('MCP Thermal Print Server started', { endpoint });
+      console.error(`MCP Thermal Print Server started on ${endpoint}`);
     } catch (error) {
       this.logger.error('Failed to start MCP server', error);
       throw new Error('Failed to start MCP server');
@@ -146,7 +148,36 @@ export class MCPThermalPrintServer {
     return [
       {
         name: 'send_print_job',
-        description: 'Sends a print job to connected thermal printers. Validates order data, formats it into Saiposprt format, and broadcasts to all connected print clients via WebSocket.',
+        description: `Sends a print job to connected thermal printers. This tool validates order data, formats it into Saiposprt format, and broadcasts to all connected print clients via WebSocket.
+
+**Purpose:** Submit orders for thermal printing to connected printer clients.
+
+**Input Example:**
+{
+  "id": 12345,
+  "customer": "João Silva",
+  "address": "Rua das Flores, 123",
+  "items": [
+    { "quantity": 2, "name": "Pizza Margherita", "price": 35.00 },
+    { "quantity": 1, "name": "Refrigerante 2L", "price": 8.00 }
+  ],
+  "deliveryFee": 5.00,
+  "total": 83.00
+}
+
+**Output Format:**
+Success: { "success": true, "jobId": "uuid", "message": "Print job sent successfully to N client(s)", "clientCount": N }
+Validation Error: { "success": false, "error": "error description", "field": "field_name" }
+No Clients: { "success": false, "message": "No printers connected" }
+
+**Error Conditions:**
+- Invalid order ID (must be positive integer)
+- Empty customer name
+- Empty items array
+- Invalid item quantity (must be positive)
+- Invalid item price (must be non-negative)
+- No printer clients connected
+- WebSocket broadcast failure`,
         inputSchema: {
           type: 'object',
           properties: {
@@ -184,17 +215,34 @@ export class MCPThermalPrintServer {
                 required: ['quantity', 'name', 'price'],
               },
             },
+            deliveryFee: {
+              type: 'number',
+              description: 'Delivery/shipping fee (optional, defaults to 0 if not provided)',
+            },
             total: {
               type: 'number',
-              description: 'Total order value (must be non-negative)',
+              description: 'Total order value (OPTIONAL - will be calculated automatically by summing items + deliveryFee. You can omit this field.)',
             },
           },
-          required: ['id', 'customer', 'items', 'total'],
+          required: ['id', 'customer', 'items'],
         },
       },
       {
         name: 'check_printer_status',
-        description: 'Checks the connection status of thermal printer clients. Returns the number of connected clients and their connection details (ID and connection time).',
+        description: `Checks the connection status of thermal printer clients. Returns the number of connected clients and their connection details (ID and connection time).
+
+**Purpose:** Verify printer availability before sending print jobs.
+
+**Input Example:**
+{}
+
+**Output Format:**
+Success: { "connectedClients": N, "clients": [{ "id": "client-uuid", "connectedAt": "2024-01-15T10:30:00.000Z" }] }
+No Clients: { "connectedClients": 0, "clients": [] }
+
+**Error Conditions:**
+- WebSocket manager not initialized (returns 0 clients)
+- Internal error retrieving status (returns error field with message)`,
         inputSchema: {
           type: 'object',
           properties: {},
@@ -202,7 +250,39 @@ export class MCPThermalPrintServer {
       },
       {
         name: 'get_print_history',
-        description: 'Retrieves the history of recent print jobs. Returns job details including ID, order ID, customer name, total value, timestamp, status, and client count. Maximum 1000 entries are stored.',
+        description: `Retrieves the history of recent print jobs. Returns job details including ID, order ID, customer name, total value, timestamp, status, and client count. Maximum 1000 entries are stored in memory.
+
+**Purpose:** Query recent print job history for monitoring and debugging.
+
+**Input Example:**
+{ "limit": 10 }
+
+**Output Format:**
+Success: {
+  "jobs": [
+    {
+      "id": "job-uuid",
+      "orderId": 12345,
+      "customer": "João Silva",
+      "total": 83.00,
+      "timestamp": "2024-01-15T10:30:00.000Z",
+      "status": "sent",
+      "clientCount": 2
+    }
+  ],
+  "total": 150,
+  "limit": 10
+}
+
+**Error Conditions:**
+- Invalid limit (uses default of 50)
+- Internal error retrieving history (returns empty jobs array with error field)
+
+**Notes:**
+- Default limit: 50 jobs
+- Maximum limit: 1000 jobs
+- History is stored in memory (not persisted)
+- Circular buffer: oldest entries are removed when limit is exceeded`,
         inputSchema: {
           type: 'object',
           properties: {

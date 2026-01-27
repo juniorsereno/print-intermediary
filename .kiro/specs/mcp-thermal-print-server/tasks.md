@@ -228,26 +228,26 @@ Este plano de implementação transforma o sistema de impressão térmica existe
     - Testar erros de validação, WebSocket, MCP protocol
     - _Requirements: 7.2, 7.3, 7.4_
 
-- [ ] 13. Adicionar documentação de ferramentas
-  - [ ] 13.1 Documentar cada ferramenta MCP
+- [x] 13. Adicionar documentação de ferramentas
+  - [x] 13.1 Documentar cada ferramenta MCP
     - Adicionar descriptions detalhadas
     - Adicionar exemplos de input válido
     - Documentar formato de output
     - Documentar condições de erro possíveis
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
   
-  - [ ] 13.2 Escrever property test para completude de documentação
+  - [x] 13.2 Escrever property test para completude de documentação
     - **Property 19: Tool Documentation Completeness**
     - **Validates: Requirements 10.1, 10.2, 10.4**
     - Verificar description, inputSchema, output format presentes
 
-- [ ] 14. Criar arquivo de configuração e ponto de entrada
-  - [ ] 14.1 Criar src/config.ts com configurações
+- [x] 14. Criar arquivo de configuração e ponto de entrada
+  - [x] 14.1 Criar src/config.ts com configurações
     - Porta do servidor, idStore, idUser, maxHistorySize
     - Carregar de variáveis de ambiente
     - _Requirements: 1.1_
   
-  - [ ] 14.2 Criar src/index.ts como ponto de entrada
+  - [x] 14.2 Criar src/index.ts como ponto de entrada
     - Instanciar todos os componentes
     - Inicializar e iniciar servidor
     - Adicionar graceful shutdown

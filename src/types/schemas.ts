@@ -28,10 +28,10 @@ export const OrderItemSchema = z.object({
 });
 
 /**
- * Schema for validating order data
+ * Schema for validating order data (input from API/LLM)
  * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
  */
-export const OrderDataSchema = z.object({
+export const OrderDataInputSchema = z.object({
   id: z.number().positive({
     message: 'Order ID must be a positive integer'
   }).int({
@@ -48,12 +48,39 @@ export const OrderDataSchema = z.object({
     message: 'Order must contain at least one item'
   }).describe('List of items in the order'),
   
+  deliveryFee: z.number().nonnegative({
+    message: 'Delivery fee must be non-negative'
+  }).finite({
+    message: 'Delivery fee must be a finite number'
+  }).optional().default(0).describe('Delivery/shipping fee (optional, defaults to 0)'),
+  
+  // Total is optional in input - will be calculated automatically
   total: z.number().nonnegative({
     message: 'Order total must be non-negative'
   }).finite({
     message: 'Order total must be a finite number'
-  }).describe('Total order value')
+  }).optional().describe('Total order value (optional - will be calculated automatically)')
+}).transform((data) => {
+  // Calculate total automatically: sum of (quantity * price) + deliveryFee
+  const itemsTotal = data.items.reduce((sum, item) => {
+    return sum + (item.quantity * item.price);
+  }, 0);
+  
+  const calculatedTotal = itemsTotal + (data.deliveryFee || 0);
+  
+  // Return data with calculated total
+  return {
+    ...data,
+    total: calculatedTotal,
+    deliveryFee: data.deliveryFee || 0
+  };
 });
+
+/**
+ * Schema for backward compatibility (accepts the old format)
+ * This is the validated output schema after transformation
+ */
+export const OrderDataSchema = OrderDataInputSchema;
 
 /**
  * Type inference from Zod schemas

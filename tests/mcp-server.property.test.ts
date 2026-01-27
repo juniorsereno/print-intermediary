@@ -93,7 +93,6 @@ describe('MCP Server Property Tests', () => {
           expect(schema.required).toContain('id');
           expect(schema.required).toContain('customer');
           expect(schema.required).toContain('items');
-          expect(schema.required).toContain('total');
           
           expect(schema.properties.id).toBeDefined();
           expect(schema.properties.customer).toBeDefined();
@@ -218,6 +217,140 @@ describe('MCP Server Property Tests', () => {
         expect(() => new Date(client.connectedAt)).not.toThrow();
         expect(new Date(client.connectedAt).toISOString()).toBe(client.connectedAt);
       });
+    });
+  });
+
+  describe('Property 19: Tool Documentation Completeness', () => {
+    /**
+     * Feature: mcp-thermal-print-server, Property 19: Tool Documentation Completeness
+     * Validates: Requirements 10.1, 10.2, 10.4
+     * 
+     * For any tool exposed by the server MCP, it must have:
+     * - Non-empty description
+     * - Valid inputSchema
+     * - Documentation of output format (in description)
+     */
+    it('should have complete documentation for all tools', async () => {
+      await mcpServer.initialize();
+
+      const getToolDefinitions = (mcpServer as any).getToolDefinitions.bind(mcpServer);
+      const tools = getToolDefinitions();
+
+      // Property: For any tool, it must have complete documentation
+      fc.assert(
+        fc.property(
+          fc.constantFrom(...tools),
+          (tool: any) => {
+            // Requirement 10.1: Each tool must have a non-empty description
+            expect(tool.description).toBeDefined();
+            expect(typeof tool.description).toBe('string');
+            expect(tool.description.length).toBeGreaterThan(0);
+
+            // Requirement 10.2: Each tool must have a valid JSON schema for input
+            expect(tool.inputSchema).toBeDefined();
+            expect(typeof tool.inputSchema).toBe('object');
+            expect(tool.inputSchema.type).toBe('object');
+            expect(tool.inputSchema.properties).toBeDefined();
+
+            // Requirement 10.4: Description should document output format
+            // Check for output format indicators in description
+            const descLower = tool.description.toLowerCase();
+            const hasOutputDocs = 
+              descLower.includes('output') || 
+              descLower.includes('return') || 
+              descLower.includes('response') ||
+              descLower.includes('format:');
+            
+            expect(hasOutputDocs).toBe(true);
+
+            // Additional checks for comprehensive documentation
+            // Description should include examples or format information
+            const hasExamples = 
+              descLower.includes('example') || 
+              descLower.includes('{') || // JSON example
+              descLower.includes('success:');
+            
+            expect(hasExamples).toBe(true);
+
+            // Description should document error conditions
+            const hasErrorDocs = 
+              descLower.includes('error') || 
+              descLower.includes('fail') ||
+              descLower.includes('condition');
+            
+            expect(hasErrorDocs).toBe(true);
+          }
+        ),
+        { numRuns: tools.length } // Run once for each tool
+      );
+    });
+
+    it('should document input parameters with descriptions', async () => {
+      await mcpServer.initialize();
+
+      const getToolDefinitions = (mcpServer as any).getToolDefinitions.bind(mcpServer);
+      const tools = getToolDefinitions();
+
+      tools.forEach((tool: any) => {
+        const schema = tool.inputSchema;
+        
+        // Each property in the schema should have a description
+        if (schema.properties && Object.keys(schema.properties).length > 0) {
+          Object.entries(schema.properties).forEach(([propName, propSchema]: [string, any]) => {
+            expect(propSchema.description).toBeDefined();
+            expect(typeof propSchema.description).toBe('string');
+            expect(propSchema.description.length).toBeGreaterThan(0);
+          });
+        }
+
+        // Required fields should be documented
+        if (schema.required && schema.required.length > 0) {
+          schema.required.forEach((requiredField: string) => {
+            expect(schema.properties[requiredField]).toBeDefined();
+            expect(schema.properties[requiredField].description).toBeDefined();
+          });
+        }
+      });
+    });
+
+    it('should document all three expected tools with comprehensive details', async () => {
+      await mcpServer.initialize();
+
+      const getToolDefinitions = (mcpServer as any).getToolDefinitions.bind(mcpServer);
+      const tools = getToolDefinitions();
+
+      const toolsByName = tools.reduce((acc: any, tool: any) => {
+        acc[tool.name] = tool;
+        return acc;
+      }, {});
+
+      // Verify send_print_job documentation
+      const sendPrintJob = toolsByName['send_print_job'];
+      expect(sendPrintJob).toBeDefined();
+      expect(sendPrintJob.description).toContain('print job');
+      expect(sendPrintJob.description).toContain('Output Format');
+      expect(sendPrintJob.description).toContain('Error Conditions');
+      expect(sendPrintJob.description).toContain('Example');
+      expect(sendPrintJob.inputSchema.required).toContain('id');
+      expect(sendPrintJob.inputSchema.required).toContain('customer');
+      expect(sendPrintJob.inputSchema.required).toContain('items');
+
+      // Verify check_printer_status documentation
+      const checkStatus = toolsByName['check_printer_status'];
+      expect(checkStatus).toBeDefined();
+      expect(checkStatus.description).toContain('status');
+      expect(checkStatus.description).toContain('Output Format');
+      expect(checkStatus.description).toContain('Error Conditions');
+
+      // Verify get_print_history documentation
+      const getHistory = toolsByName['get_print_history'];
+      expect(getHistory).toBeDefined();
+      expect(getHistory.description).toContain('history');
+      expect(getHistory.description).toContain('Output Format');
+      expect(getHistory.description).toContain('Error Conditions');
+      expect(getHistory.inputSchema.properties.limit).toBeDefined();
+      expect(getHistory.inputSchema.properties.limit.description).toContain('default');
+      expect(getHistory.inputSchema.properties.limit.description).toContain('max');
     });
   });
 });

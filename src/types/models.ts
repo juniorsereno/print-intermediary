@@ -27,7 +27,9 @@ export interface OrderData {
   address?: string | null;
   /** List of items in the order (must have at least one item) */
   items: OrderItem[];
-  /** Total order value (must be non-negative) */
+  /** Delivery/shipping fee (defaults to 0) */
+  deliveryFee: number;
+  /** Total order value (calculated automatically: sum of items + deliveryFee) */
   total: number;
 }
 

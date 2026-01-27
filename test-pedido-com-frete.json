@@ -1,0 +1,18 @@
+{
+  "id": 99999,
+  "customer": "João Silva - TESTE COM FRETE",
+  "address": "Rua das Flores, 123 - Bairro Centro",
+  "items": [
+    {
+      "quantity": 2,
+      "name": "Pizza Margherita Grande",
+      "price": 45.00
+    },
+    {
+      "quantity": 1,
+      "name": "Refrigerante 2L",
+      "price": 10.00
+    }
+  ],
+  "deliveryFee": 8.50
+}

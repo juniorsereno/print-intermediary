@@ -13,25 +13,26 @@ import { SaiposFormatter } from './components/formatter.js';
 import { WebSocketManager } from './components/websocket.js';
 import { PrintHistory } from './components/history.js';
 import { LegacyHttpHandler } from './components/legacy.js';
+import { MCPThermalPrintServer } from './server.js';
 import { Logger } from './utils/logger.js';
+import { getConfig } from './config.js';
 
 // ES module __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configuration from environment variables
-const PORT = parseInt(process.env.PORT || '3000', 10);
-const ID_STORE = parseInt(process.env.ID_STORE || '72144', 10);
-const ID_USER = parseInt(process.env.ID_USER || '1', 10);
-
 const logger = new Logger('Main');
+
+// Load and validate configuration
+const config = getConfig();
 
 async function startServer() {
   try {
     logger.info('Starting MCP Thermal Print Server', { 
-      port: PORT, 
-      idStore: ID_STORE, 
-      idUser: ID_USER 
+      port: config.port, 
+      idStore: config.idStore, 
+      idUser: config.idUser,
+      maxHistorySize: config.maxHistorySize
     });
 
     // Create Express app and HTTP server
@@ -40,10 +41,20 @@ async function startServer() {
 
     // Initialize components
     const validator = new DataValidator();
-    const formatter = new SaiposFormatter({ idStore: ID_STORE, idUser: ID_USER });
+    const formatter = new SaiposFormatter({ idStore: config.idStore, idUser: config.idUser });
     const wsManager = new WebSocketManager(httpServer);
-    const history = new PrintHistory(1000);
+    const history = new PrintHistory(config.maxHistorySize);
     const legacyHandler = new LegacyHttpHandler(validator, formatter, wsManager, history);
+
+    // Initialize MCP server
+    const mcpServer = new MCPThermalPrintServer({
+      name: config.serverName,
+      version: config.serverVersion,
+      idStore: config.idStore,
+      idUser: config.idUser,
+    });
+    mcpServer.setWebSocketManager(wsManager);
+    await mcpServer.initialize();
 
     // Initialize WebSocket
     wsManager.initialize();
@@ -104,6 +115,10 @@ async function startServer() {
     // Legacy print endpoint
     app.post('/api/print', (req, res) => legacyHandler.handlePrintRequest(req, res));
 
+    // MCP endpoint - must be registered after other routes
+    await mcpServer.start('/mcp', app);
+    logger.info('MCP server initialized on /mcp endpoint');
+
     // Root endpoint - redirect to client page
     app.get('/', (_req, res) => {
       res.sendFile(path.join(publicPath, 'index.html'));
@@ -119,22 +134,24 @@ async function startServer() {
     });
 
     // Start HTTP server
-    httpServer.listen(PORT, () => {
+    httpServer.listen(config.port, () => {
       logger.info('Server started successfully', { 
-        port: PORT,
+        port: config.port,
         endpoints: {
-          health: `http://localhost:${PORT}/health`,
-          status: `http://localhost:${PORT}/api/status`,
-          print: `http://localhost:${PORT}/api/print`,
-          history: `http://localhost:${PORT}/api/history`,
-          websocket: `ws://localhost:${PORT}`
+          health: `http://localhost:${config.port}/health`,
+          status: `http://localhost:${config.port}/api/status`,
+          print: `http://localhost:${config.port}/api/print`,
+          history: `http://localhost:${config.port}/api/history`,
+          mcp: `http://localhost:${config.port}/mcp`,
+          websocket: `ws://localhost:${config.port}`
         }
       });
-      console.log(`\n🚀 MCP Thermal Print Server running on port ${PORT}`);
-      console.log(`📊 Status: http://localhost:${PORT}/api/status`);
-      console.log(`🖨️  Print: POST http://localhost:${PORT}/api/print`);
-      console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
-      console.log(`🌐 Client: http://localhost:${PORT}/\n`);
+      console.log(`\n🚀 MCP Thermal Print Server running on port ${config.port}`);
+      console.log(`📊 Status: http://localhost:${config.port}/api/status`);
+      console.log(`🖨️  Print: POST http://localhost:${config.port}/api/print`);
+      console.log(`🤖 MCP: http://localhost:${config.port}/mcp`);
+      console.log(`🔌 WebSocket: ws://localhost:${config.port}`);
+      console.log(`🌐 Client: http://localhost:${config.port}/\n`);
     });
 
     // Graceful shutdown

@@ -169,8 +169,10 @@ export class SaiposFormatter {
     rows.push('</ae></linha_simples>');
 
     // Items
+    let itemsSubtotal = 0;
     for (const item of orderData.items) {
       const itemTotal = item.quantity * item.price;
+      itemsSubtotal += itemTotal;
       const quantityStr = item.quantity.toString().padStart(2, ' ');
       const priceStr = itemTotal.toFixed(2).padStart(6, ' ');
       
@@ -186,6 +188,18 @@ export class SaiposFormatter {
 
     rows.push('</ae></linha_simples>');
     rows.push(`</ae>Quantidade de itens:          <e>${orderData.items.length.toString().padStart(6, ' ')}</e>`);
+    rows.push('</linha_simples>');
+
+    // Subtotal
+    const subtotalStr = itemsSubtotal.toFixed(2).padStart(6, ' ');
+    rows.push(`</ae>Subtotal                            ${subtotalStr}`);
+    
+    // Delivery fee if present
+    if (orderData.deliveryFee > 0) {
+      const deliveryFeeStr = orderData.deliveryFee.toFixed(2).padStart(6, ' ');
+      rows.push(`</ae>Taxa de Entrega                     ${deliveryFeeStr}`);
+    }
+    
     rows.push('</linha_simples>');
 
     // Total section
