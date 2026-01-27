@@ -78,52 +78,27 @@ export class MCPThermalPrintServer {
       // Register send_print_job tool - Emitir Pedido
       this.server.tool(
         'emitir_pedido',
-        `Emite um pedido para impressão na impressora térmica da pizzaria. Valida os dados do pedido, valor total do pedido é calculado automaticamente somando (quantidade × preço) de cada item + taxa de entrega.
+        `Emite um pedido para impressão na impressora térmica da pizzaria. O valor total é calculado automaticamente.
 
-IMPORTANTE - Como Informar Pizzas:
+COMO INFORMAR PIZZAS:
 
-1. PIZZA INTEIRA (um sabor):
-   - name: Pizza Calabresa Grande
-   - name: Pizza Mussarela Grande
-   - Todas as pizzas são tamanho Grande
-   
-2. PIZZA METADE/METADE (dois sabores):
-   - name: Pizza Calabresa/Mussarela Grande
-   - name: Pizza Portuguesa/Frango Grande
-   - Formato: Pizza Sabor1/Sabor2 Grande
-   - Use barra (/) para separar os dois sabores
-   - Todas as pizzas são tamanho Grande
-   
-Exemplos de Itens:
-- Pizza inteira: {quantity: 1, name: Pizza Calabresa Grande, price: 45.00}
-- Pizza metade: {quantity: 1, name: Pizza Calabresa/Mussarela Grande, price: 45.00}
-- Bebida: {quantity: 2, name: Refrigerante 2L, price: 10.00}
+Pizza inteira (um sabor):
+- Use o formato: Pizza [Sabor] Grande
+- Exemplo: Pizza Calabresa Grande
+- Exemplo: Pizza Mussarela Grande
 
-Formato de Saída:
-{
-  success: true,
-  jobId: uuid-string,
-  message: Pedido enviado com sucesso para N impressora(s),
-  clientCount: N
-}
+Pizza metade/metade (dois sabores):
+- Use o formato: Pizza [Sabor1]/[Sabor2] Grande
+- Use barra / para separar os sabores
+- Exemplo: Pizza Calabresa/Mussarela Grande
+- Exemplo: Pizza Portuguesa/Frango Grande
 
-Condições de Erro:
-- Retorna success: false se a validação falhar
-- Retorna success: false se não houver impressoras conectadas
-- Retorna campo error com detalhes da validação em caso de falha
+IMPORTANTE: Todas as pizzas são tamanho Grande.
 
-Exemplo Completo:
-Entrada: {
-  id: 123,
-  customer: João Silva,
-  items: [
-    {quantity: 1, name: Pizza Calabresa Grande, price: 45.00},
-    {quantity: 1, name: Pizza Portuguesa/Frango Grande, price: 45.00},
-    {quantity: 1, name: Refrigerante 2L, price: 10.00}
-  ],
-  deliveryFee: 8.00
-}
-Saída: {success: true, jobId: abc-123, message: Pedido enviado com sucesso para 1 impressora(s), clientCount: 1}`,
+Outros itens:
+- Use o nome normal do produto
+- Exemplo: Refrigerante 2L
+- Exemplo: Suco Natural 500ml`,
         {
           id: z.number().positive().describe('ID único do pedido (deve ser um número inteiro positivo)'),
           customer: z.string().min(1).describe('Nome do cliente (não pode estar vazio)'),
