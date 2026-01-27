@@ -65,6 +65,19 @@ async function startServer() {
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
 
+    // CORS middleware for MCP endpoint
+    app.use('/mcp', (req, res, next) => {
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+        return;
+      }
+      next();
+    });
+
     // Serve static files from public directory
     const publicPath = path.join(__dirname, '../public');
     app.use(express.static(publicPath));
@@ -128,6 +141,19 @@ async function startServer() {
         }
       }
     });
+    
+    // MCP info endpoint for debugging
+    app.get('/mcp/info', (_req, res) => {
+      res.json({
+        protocol: 'mcp',
+        version: '1.0.0',
+        transport: 'streamable-http',
+        serverName: config.serverName,
+        serverVersion: config.serverVersion,
+        endpoint: '/mcp'
+      });
+    });
+    
     logger.info('MCP server initialized on /mcp endpoint');
 
     // Root endpoint - redirect to client page
