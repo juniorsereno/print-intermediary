@@ -84,6 +84,16 @@
         const statusEl = document.getElementById('status');
         const logEl = document.getElementById('log');
 
+        // Preload the alert sound
+        const alertAudio = new Audio('/ding-sound-effect_2.mp3');
+        
+        function playAlertSound() {
+            alertAudio.currentTime = 0;
+            alertAudio.play().catch(err => {
+                console.warn('Could not play alert sound:', err);
+            });
+        }
+
         function addLog(message) {
             const entry = document.createElement('div');
             entry.className = 'log-entry';
@@ -106,6 +116,7 @@
 
         socket.on('download', (data) => {
             addLog(`Recebido pedido para impressão`);
+            playAlertSound();
             downloadFile('pedido.saiposprt', data);
         });
 
