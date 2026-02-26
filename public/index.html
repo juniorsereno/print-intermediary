@@ -61,6 +61,23 @@
             color: #666;
             margin-top: 1rem;
         }
+        .btn-sound {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 1rem;
+            transition: background-color 0.2s;
+        }
+        .btn-sound:hover {
+            background-color: #2563eb;
+        }
+        .btn-sound.active {
+            background-color: #10b981;
+        }
     </style>
 </head>
 <body>
@@ -69,6 +86,8 @@
         <div id="status" class="status disconnected">Desconectado</div>
         <p>Mantenha esta página aberta para receber os pedidos.</p>
         
+        <button id="enableSoundBtn" class="btn-sound">Ativar Alertas Sonoros</button>
+
         <div class="log" id="log">
             <!-- Logs will appear here -->
         </div>
@@ -83,11 +102,32 @@
         const socket = io();
         const statusEl = document.getElementById('status');
         const logEl = document.getElementById('log');
+        const soundBtn = document.getElementById('enableSoundBtn');
 
         // Preload the alert sound
         const alertAudio = new Audio('/ding-sound-effect_2.mp3');
+        let soundEnabled = false;
+
+        soundBtn.addEventListener('click', () => {
+            // Play and pause immediately to unlock audio context in the browser
+            alertAudio.play().then(() => {
+                alertAudio.pause();
+                alertAudio.currentTime = 0;
+                soundEnabled = true;
+                soundBtn.textContent = 'Som Ativado';
+                soundBtn.classList.add('active');
+                addLog('Alertas sonoros ativados');
+            }).catch(err => {
+                console.warn('Could not activate sound:', err);
+                addLog('Erro ao ativar som: ' + err.message);
+            });
+        });
         
         function playAlertSound() {
+            if (!soundEnabled) {
+                console.warn('Sound is disabled. User needs to interact with the page first.');
+                return;
+            }
             alertAudio.currentTime = 0;
             alertAudio.play().catch(err => {
                 console.warn('Could not play alert sound:', err);

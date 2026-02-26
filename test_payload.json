@@ -1,0 +1,14 @@
+{
+    "id": 999902,
+    "customer": "Teste Assessor IA",
+    "phone": "(11) 99999-9999",
+    "observation": "Teste de som e observacao sem cebola na calabresa",
+    "items": [
+        {
+            "quantity": 1,
+            "name": "Pizza Calabresa Grande",
+            "price": 45.00
+        }
+    ],
+    "deliveryFee": 8.00
+}
