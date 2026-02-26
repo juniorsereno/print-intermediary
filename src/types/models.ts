@@ -23,8 +23,12 @@ export interface OrderData {
   id: number;
   /** Customer name */
   customer: string;
+  /** Customer phone number */
+  phone?: string | null;
   /** Delivery address (optional) */
   address?: string | null;
+  /** Order observation/notes (optional) */
+  observation?: string | null;
   /** List of items in the order (must have at least one item) */
   items: OrderItem[];
   /** Delivery/shipping fee (defaults to 0) */

@@ -109,6 +109,50 @@ export class WebSocketManager {
   }
 
   /**
+   * Broadcasts two print jobs (counter and kitchen) to all connected clients
+   * @param fullData - Full format data (for counter)
+   * @param kitchenData - Kitchen format data (simplified)
+   * @returns BroadcastResult with success status and client count
+   */
+  broadcastBoth(fullData: string, kitchenData: string): BroadcastResult {
+    try {
+      const clientCount = this.clients.size;
+
+      if (clientCount === 0) {
+        this.logger.warn('Broadcast attempted with no clients connected');
+        return {
+          success: false,
+          clientCount: 0,
+          error: 'No clients connected'
+        };
+      }
+
+      // Broadcast both print jobs to all connected clients
+      this.io.emit('print_both', { full: fullData, kitchen: kitchenData });
+
+      this.logger.info('Both print jobs broadcasted successfully', { 
+        clientCount,
+        fullDataLength: fullData.length,
+        kitchenDataLength: kitchenData.length
+      });
+
+      return {
+        success: true,
+        clientCount
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('Broadcast both failed', error, { clientCount: this.clients.size });
+      
+      return {
+        success: false,
+        clientCount: this.clients.size,
+        error: `Broadcast failed: ${errorMessage}`
+      };
+    }
+  }
+
+  /**
    * Returns information about all connected clients
    * @returns Array of ClientInfo objects
    * 

@@ -75,15 +75,24 @@ export class SaiposFormatter {
    * Requirements: 8.1, 8.2, 8.3, 7.4
    */
   format(orderData: OrderData): string {
+    return this.formatFull(orderData);
+  }
+
+  /**
+   * Formats OrderData for counter print (full format with prices)
+   * @param orderData - The order data to format
+   * @returns Data URL string containing base64-encoded JSON
+   */
+  formatFull(orderData: OrderData): string {
     try {
-      this.logger.info('Formatting order data', { 
-        orderId: orderData.id, 
-        itemCount: orderData.items.length 
+      this.logger.info('Formatting order data (full format)', {
+        orderId: orderData.id,
+        itemCount: orderData.items.length
       });
 
       const printData: SaiposPrintData = {
-        printSettings: this.generatePrintSettings(orderData.id),
-        printRows: this.generatePrintRows(orderData),
+        printSettings: this.generatePrintSettings(orderData.id, 'balcao'),
+        printRows: this.generateFullPrintRows(orderData),
         sale_number: `do pedido ${orderData.id}`,
         id_sale: orderData.id,
         logData: {
@@ -96,11 +105,11 @@ export class SaiposFormatter {
       };
 
       const result = this.encodeToDataUrl(printData);
-      this.logger.info('Order data formatted successfully', { 
+      this.logger.info('Order data formatted successfully (full)', {
         orderId: orderData.id,
-        dataLength: result.length 
+        dataLength: result.length
       });
-      
+
       return result;
     } catch (error) {
       this.logger.error('Failed to format order data', error, { orderId: orderData.id });
@@ -109,13 +118,65 @@ export class SaiposFormatter {
   }
 
   /**
+   * Formats OrderData for kitchen print (simplified, no prices)
+   * @param orderData - The order data to format
+   * @returns Data URL string containing base64-encoded JSON
+   */
+  formatKitchen(orderData: OrderData): string {
+    try {
+      this.logger.info('Formatting order data (kitchen format)', {
+        orderId: orderData.id,
+        itemCount: orderData.items.length
+      });
+
+      const printData: SaiposPrintData = {
+        printSettings: this.generatePrintSettings(orderData.id, 'cozinha'),
+        printRows: this.generateKitchenPrintRows(orderData),
+        sale_number: `do pedido ${orderData.id}`,
+        id_sale: orderData.id,
+        logData: {
+          id_store: this.config.idStore,
+          id_sale: orderData.id,
+          print_sent_user: this.config.idUser,
+          print_sent_method: 1,
+          print_auto: 'N'
+        }
+      };
+
+      const result = this.encodeToDataUrl(printData);
+      this.logger.info('Order data formatted successfully (kitchen)', {
+        orderId: orderData.id,
+        dataLength: result.length
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error('Failed to format order data for kitchen', error, { orderId: orderData.id });
+      throw new Error('Failed to format order data for kitchen printing');
+    }
+  }
+
+  /**
+   * Formats OrderData to both formats (counter and kitchen)
+   * @param orderData - The order data to format
+   * @returns Object with both formatted versions
+   */
+  formatBoth(orderData: OrderData): { full: string; kitchen: string } {
+    return {
+      full: this.formatFull(orderData),
+      kitchen: this.formatKitchen(orderData)
+    };
+  }
+
+  /**
    * Generates print settings for the order
    * @param orderId - The order ID
+   * @param type - The print type ('balcao' or 'cozinha')
    * @returns SaiposSettings object
    * 
    * Requirements: 8.4, 8.6
    */
-  private generatePrintSettings(orderId: number): SaiposSettings {
+  private generatePrintSettings(orderId: number, type: string = 'balcao'): SaiposSettings {
     return {
       type: 0,
       printDelivery: 1,
@@ -131,18 +192,18 @@ export class SaiposFormatter {
       idStore: this.config.idStore,
       guid: uuidv4(),
       id_user: this.config.idUser,
-      fileName: `${orderId}.saiposprt`
+      fileName: `${orderId}_${type}.saiposprt`
     };
   }
 
   /**
-   * Generates print rows (lines) for the thermal printer
+   * Generates print rows (lines) for the thermal printer - Full format (counter)
    * @param orderData - The order data
    * @returns Array of formatted print rows
    * 
    * Requirements: 8.5
    */
-  private generatePrintRows(orderData: OrderData): string[] {
+  private generateFullPrintRows(orderData: OrderData): string[] {
     const rows: string[] = [];
 
     // Barcode configuration
@@ -155,12 +216,23 @@ export class SaiposFormatter {
     rows.push('</ce><n><e>PEDIDO</e></n>');
     rows.push(`</ae>Pedido: <n><a>#${orderData.id}</a></n>`);
     rows.push(`</ae>${orderData.customer}`);
-    
+
+    // Phone if provided
+    if (orderData.phone) {
+      rows.push(`</ae>Tel: ${orderData.phone}`);
+    }
+
     // Address if provided
     if (orderData.address) {
       rows.push(`</ae>${orderData.address}`);
     }
-    
+
+    // Observation if provided
+    if (orderData.observation) {
+      rows.push('</ae></linha_simples>');
+      rows.push(`</ae><n>OBS:</n> ${orderData.observation}`);
+    }
+
     rows.push(`</ae>ID do pedido: ${orderData.id}`);
     rows.push('</ae></linha_simples>');
 
@@ -175,13 +247,13 @@ export class SaiposFormatter {
       itemsSubtotal += itemTotal;
       const quantityStr = item.quantity.toString().padStart(2, ' ');
       const priceStr = itemTotal.toFixed(2).padStart(6, ' ');
-      
+
       // Truncate or pad item name to fit in the available space
       const maxNameLength = 30;
-      const itemName = item.name.length > maxNameLength 
-        ? item.name.substring(0, maxNameLength) 
+      const itemName = item.name.length > maxNameLength
+        ? item.name.substring(0, maxNameLength)
         : item.name.padEnd(maxNameLength, ' ');
-      
+
       rows.push(`</ae><a>${quantityStr}  ${itemName} ${priceStr}</a>`);
       rows.push('</ae>');
     }
@@ -193,13 +265,13 @@ export class SaiposFormatter {
     // Subtotal
     const subtotalStr = itemsSubtotal.toFixed(2).padStart(6, ' ');
     rows.push(`</ae>Subtotal                            ${subtotalStr}`);
-    
+
     // Delivery fee if present
     if (orderData.deliveryFee > 0) {
       const deliveryFeeStr = orderData.deliveryFee.toFixed(2).padStart(6, ' ');
       rows.push(`</ae>Taxa de Entrega                     ${deliveryFeeStr}`);
     }
-    
+
     rows.push('</linha_simples>');
 
     // Total section
@@ -212,7 +284,74 @@ export class SaiposFormatter {
     rows.push(`<code128>${orderData.id.toString().padStart(12, '0')}</code128>`);
     rows.push(`ID. do pedido: ${orderData.id}`);
     rows.push('</ae><c><n>www.saipos.com</n></c>');
-    
+
+    // Empty lines for paper cut
+    rows.push(' ');
+    rows.push(' ');
+    rows.push(' ');
+    rows.push('</corte_parcial>');
+
+    return rows;
+  }
+
+  /**
+   * Generates print rows (lines) for kitchen print (simplified, no prices)
+   * @param orderData - The order data
+   * @returns Array of formatted print rows
+   */
+  private generateKitchenPrintRows(orderData: OrderData): string[] {
+    const rows: string[] = [];
+
+    // Header section - SIMPLIFIED
+    rows.push('</ae></linha_simples>');
+    rows.push('</ce><n><e>COZINHA</e></n>');
+    rows.push(`</ae>Pedido: <n><a>#${orderData.id}</a></n>`);
+    rows.push(`</ae>${orderData.customer}`);
+
+    // Phone if provided
+    if (orderData.phone) {
+      rows.push(`</ae>Tel: ${orderData.phone}`);
+    }
+
+    // Address if provided
+    if (orderData.address) {
+      rows.push(`</ae>${orderData.address}`);
+    }
+
+    // Observation if provided
+    if (orderData.observation) {
+      rows.push('</ae></linha_simples>');
+      rows.push(`</ae><n>OBS:</n> ${orderData.observation}`);
+    }
+
+    rows.push('</ae></linha_simples>');
+
+    // Items section header - SIMPLIFIED (no prices)
+    rows.push('</ae>Itens do Pedido:');
+    rows.push('</ae></linha_simples>');
+
+    // Items - SIMPLIFIED (no prices)
+    for (const item of orderData.items) {
+      const quantityStr = item.quantity.toString().padStart(2, ' ');
+
+      // Truncate or pad item name to fit in the available space
+      const maxNameLength = 35;
+      const itemName = item.name.length > maxNameLength
+        ? item.name.substring(0, maxNameLength)
+        : item.name.padEnd(maxNameLength, ' ');
+
+      rows.push(`</ae><a>${quantityStr}x  ${itemName}</a>`);
+      rows.push('</ae>');
+    }
+
+    rows.push('</ae></linha_simples>');
+    rows.push(`</ae>Total de itens: ${orderData.items.length}`);
+    rows.push('</linha_simples>');
+
+    // Footer - SIMPLIFIED
+    rows.push('</ce>');
+    rows.push(`ID. do pedido: ${orderData.id}`);
+
     // Empty lines for paper cut
     rows.push(' ');
     rows.push(' ');
@@ -232,10 +371,10 @@ export class SaiposFormatter {
   private encodeToDataUrl(data: SaiposPrintData): string {
     // Wrap in array as per Saiposprt format
     const jsonString = JSON.stringify([data]);
-    
+
     // Encode to base64
     const base64 = Buffer.from(jsonString, 'utf-8').toString('base64');
-    
+
     // Create data URL
     return `data:text/json;charset=utf-8,${base64}`;
   }

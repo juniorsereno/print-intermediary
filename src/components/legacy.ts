@@ -74,11 +74,11 @@ export class LegacyHttpHandler {
         return;
       }
 
-      // Format order data to Saiposprt
-      const formattedData = this.formatter.format(orderData);
+      // Format order data to both formats (counter and kitchen)
+      const formattedData = this.formatter.formatBoth(orderData);
 
-      // Broadcast to connected clients
-      const broadcastResult = this.wsManager.broadcast(formattedData);
+      // Broadcast both print jobs to connected clients
+      const broadcastResult = this.wsManager.broadcastBoth(formattedData.full, formattedData.kitchen);
 
       if (!broadcastResult.success) {
         // Add failed job to history

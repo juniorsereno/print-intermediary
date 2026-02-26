@@ -15,11 +15,11 @@ export const OrderItemSchema = z.object({
   }).finite({
     message: 'Item quantity must be a finite number'
   }).describe('Quantity of the item'),
-  
+
   name: z.string().trim().min(1, {
     message: 'Item name cannot be empty'
   }).describe('Name/description of the item'),
-  
+
   price: z.number().nonnegative({
     message: 'Item price must be non-negative'
   }).finite({
@@ -37,23 +37,27 @@ export const OrderDataInputSchema = z.object({
   }).int({
     message: 'Order ID must be an integer'
   }).describe('Unique order ID'),
-  
+
   customer: z.string().trim().min(1, {
     message: 'Customer name cannot be empty'
   }).describe('Customer name'),
-  
+
+  phone: z.string().optional().nullable().describe('Customer phone number (optional)'),
+
   address: z.string().optional().nullable().describe('Delivery address (optional)'),
-  
+
+  observation: z.string().optional().nullable().describe('Order observation/notes (optional)'),
+
   items: z.array(OrderItemSchema).min(1, {
     message: 'Order must contain at least one item'
   }).describe('List of items in the order'),
-  
+
   deliveryFee: z.number().nonnegative({
     message: 'Delivery fee must be non-negative'
   }).finite({
     message: 'Delivery fee must be a finite number'
   }).optional().default(0).describe('Delivery/shipping fee (optional, defaults to 0)'),
-  
+
   // Total is optional in input - will be calculated automatically
   total: z.number().nonnegative({
     message: 'Order total must be non-negative'
@@ -65,9 +69,9 @@ export const OrderDataInputSchema = z.object({
   const itemsTotal = data.items.reduce((sum, item) => {
     return sum + (item.quantity * item.price);
   }, 0);
-  
+
   const calculatedTotal = itemsTotal + (data.deliveryFee || 0);
-  
+
   // Return data with calculated total
   return {
     ...data,

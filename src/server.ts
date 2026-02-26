@@ -56,10 +56,10 @@ export class MCPThermalPrintServer {
     this.wsManager = null;
     this.history = new PrintHistory(1000);
     this.logger = new Logger('MCPThermalPrintServer');
-    
-    this.logger.info('MCP server instance created', { 
-      name: config.name, 
-      version: config.version 
+
+    this.logger.info('MCP server instance created', {
+      name: config.name,
+      version: config.version
     });
   }
 
@@ -98,11 +98,16 @@ IMPORTANTE: Todas as pizzas são tamanho Grande.
 Outros itens:
 - Use o nome normal do produto
 - Exemplo: Refrigerante 2L
-- Exemplo: Suco Natural 500ml`,
+- Exemplo: Suco Natural 500ml
+
+Formato de Saída: Retorna JSON com success e jobId.
+Condições de Erro: Retorna erro se falhar validação ou impressora offline.`,
         {
           id: z.number().int().min(1).describe('ID único do pedido (deve ser um número inteiro positivo)'),
           customer: z.string().min(1).describe('Nome do cliente (não pode estar vazio)'),
+          phone: z.string().optional().describe('Telefone de contato do cliente (opcional)'),
           address: z.string().optional().describe('Endereço de entrega (opcional)'),
+          observation: z.string().optional().describe('Observação do pedido para a cozinha/preparo (ex: "Calabresa sem cebola"). Importante: use sempre que o cliente pedir alguma alteração nos ingredientes ou preparo.'),
           items: z.array(z.object({
             quantity: z.number().min(1).describe('Quantidade do item (deve ser positivo)'),
             name: z.string().describe('Nome do item. Para pizzas inteiras use Pizza Sabor Grande (ex: Pizza Calabresa Grande). Para pizzas metade/metade use Pizza Sabor1/Sabor2 Grande (ex: Pizza Calabresa/Mussarela Grande). Todas as pizzas são tamanho Grande. Para outros itens use o nome normal (ex: Refrigerante 2L)'),
@@ -130,7 +135,7 @@ Outros itens:
     }
 
     const def = zodSchema.def;
-    
+
     // Handle object type
     if (def.type === 'object' && def.shape) {
       const properties: any = {};
@@ -139,14 +144,14 @@ Outros itens:
       // Process each property in the shape
       for (const [key, value] of Object.entries(def.shape)) {
         const propDef = (value as any).def;
-        
+
         // Check if property is optional
         const isOptional = propDef && propDef.type === 'optional';
-        
+
         if (!isOptional) {
           required.push(key);
         }
-        
+
         // Convert property to JSON Schema
         properties[key] = this.zodPropertyToJsonSchema(value as any);
       }
@@ -258,7 +263,7 @@ Outros itens:
   }> {
     // Access the internal registered tools from the MCP server
     const tools = (this.server as any)._registeredTools;
-    
+
     if (!tools || typeof tools !== 'object') {
       return [];
     }
@@ -267,11 +272,11 @@ Outros itens:
     return Object.entries(tools).map(([name, tool]: [string, any]) => {
       // Convert Zod schema to JSON Schema
       let inputSchema = { type: 'object', properties: {}, required: [] };
-      
+
       if (tool.inputSchema) {
         inputSchema = this.zodToJsonSchema(tool.inputSchema);
       }
-      
+
       return {
         name,
         description: tool.description || '',
@@ -325,16 +330,16 @@ Outros itens:
   private async handleSendPrintJob(args: any): Promise<{ content: Array<{ type: "text"; text: string }> }> {
     try {
       this.logger.info('Processing send_print_job request');
-      
+
       // Validate order data
       const validationResult = this.validator.validateOrderData(args);
-      
+
       if (!validationResult.success) {
-        this.logger.warn('Print job validation failed', { 
+        this.logger.warn('Print job validation failed', {
           error: validationResult.error,
-          field: validationResult.field 
+          field: validationResult.field
         });
-        
+
         return {
           content: [{
             type: 'text',
@@ -352,7 +357,7 @@ Outros itens:
       // Check if clients are connected
       if (!this.wsManager || this.wsManager.getClientCount() === 0) {
         this.logger.warn('Print job rejected - no clients connected', { orderId: orderData.id });
-        
+
         return {
           content: [{
             type: 'text',
@@ -364,11 +369,11 @@ Outros itens:
         };
       }
 
-      // Format order data to Saiposprt
-      const formattedData = this.formatter.format(orderData);
+      // Format order data to both formats (counter and kitchen)
+      const formattedData = this.formatter.formatBoth(orderData);
 
-      // Broadcast to connected clients
-      const broadcastResult = this.wsManager.broadcast(formattedData);
+      // Broadcast both print jobs to connected clients
+      const broadcastResult = this.wsManager.broadcastBoth(formattedData.full, formattedData.kitchen);
 
       if (!broadcastResult.success) {
         const job = this.history.add({
@@ -379,10 +384,10 @@ Outros itens:
           clientCount: 0,
         });
 
-        this.logger.error('Print job broadcast failed', undefined, { 
+        this.logger.error('Print job broadcast failed', undefined, {
           jobId: job.id,
           orderId: orderData.id,
-          error: broadcastResult.error 
+          error: broadcastResult.error
         });
 
         return {
@@ -406,10 +411,10 @@ Outros itens:
         clientCount: broadcastResult.clientCount,
       });
 
-      this.logger.info('Print job sent successfully', { 
+      this.logger.info('Print job sent successfully', {
         jobId: job.id,
         orderId: orderData.id,
-        clientCount: broadcastResult.clientCount 
+        clientCount: broadcastResult.clientCount
       });
 
       return {
@@ -425,7 +430,7 @@ Outros itens:
       };
     } catch (error) {
       this.logger.error('Unexpected error in send_print_job', error);
-      
+
       return {
         content: [{
           type: 'text',

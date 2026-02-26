@@ -120,6 +120,17 @@
             downloadFile('pedido.saiposprt', data);
         });
 
+        socket.on('print_both', (data) => {
+            addLog(`Recebido pedido para impressão (2 vias)`);
+            playAlertSound();
+            // Download counter copy (full)
+            downloadFile('pedido_balcao.saiposprt', data.full);
+            // Small delay before downloading kitchen copy
+            setTimeout(() => {
+                downloadFile('pedido_cozinha.saiposprt', data.kitchen);
+            }, 500);
+        });
+
         function downloadFile(filename, content) {
             try {
                 const element = document.createElement('a');
