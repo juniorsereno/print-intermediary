@@ -90,14 +90,16 @@ export class SaiposFormatter {
         itemCount: orderData.items.length
       });
 
+      const normalizedData = this.normalizeOrderData(orderData);
+
       const printData: SaiposPrintData = {
-        printSettings: this.generatePrintSettings(orderData.id, 'balcao'),
-        printRows: this.generateFullPrintRows(orderData),
-        sale_number: `do pedido ${orderData.id}`,
-        id_sale: orderData.id,
+        printSettings: this.generatePrintSettings(normalizedData.id, 'balcao'),
+        printRows: this.generateFullPrintRows(normalizedData),
+        sale_number: `do pedido ${normalizedData.id}`,
+        id_sale: normalizedData.id,
         logData: {
           id_store: this.config.idStore,
-          id_sale: orderData.id,
+          id_sale: normalizedData.id,
           print_sent_user: this.config.idUser,
           print_sent_method: 1,
           print_auto: 'N'
@@ -129,14 +131,16 @@ export class SaiposFormatter {
         itemCount: orderData.items.length
       });
 
+      const normalizedData = this.normalizeOrderData(orderData);
+
       const printData: SaiposPrintData = {
-        printSettings: this.generatePrintSettings(orderData.id, 'cozinha'),
-        printRows: this.generateKitchenPrintRows(orderData),
-        sale_number: `do pedido ${orderData.id}`,
-        id_sale: orderData.id,
+        printSettings: this.generatePrintSettings(normalizedData.id, 'cozinha'),
+        printRows: this.generateKitchenPrintRows(normalizedData),
+        sale_number: `do pedido ${normalizedData.id}`,
+        id_sale: normalizedData.id,
         logData: {
           id_store: this.config.idStore,
-          id_sale: orderData.id,
+          id_sale: normalizedData.id,
           print_sent_user: this.config.idUser,
           print_sent_method: 1,
           print_auto: 'N'
@@ -166,6 +170,33 @@ export class SaiposFormatter {
       full: this.formatFull(orderData),
       kitchen: this.formatKitchen(orderData)
     };
+  }
+
+  /**
+   * Normalizes order data to remove special characters and accents,
+   * avoiding encoding issues on the thermal printer.
+   */
+  private normalizeOrderData(orderData: OrderData): OrderData {
+    return {
+      ...orderData,
+      customer: this.normalizeText(orderData.customer),
+      address: orderData.address ? this.normalizeText(orderData.address) : null,
+      observation: orderData.observation ? this.normalizeText(orderData.observation) : null,
+      items: orderData.items.map(item => ({
+        ...item,
+        name: this.normalizeText(item.name)
+      }))
+    };
+  }
+
+  /**
+   * Remove accents and special characters
+   */
+  private normalizeText(text: string): string {
+    if (!text) return text;
+    // Normalize to NFD (decomposes text into base characters and diacritical marks)
+    // Then replace all diacritical marks with empty string
+    return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   }
 
   /**
