@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,15 +16,17 @@
             margin: 0;
             color: #333;
         }
+
         .card {
             background: white;
             padding: 2rem;
             border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             width: 100%;
             max-width: 400px;
             text-align: center;
         }
+
         .status {
             display: inline-block;
             padding: 0.5rem 1rem;
@@ -31,14 +34,17 @@
             font-weight: bold;
             margin-bottom: 1rem;
         }
+
         .status.connected {
             background-color: #d1fae5;
             color: #065f46;
         }
+
         .status.disconnected {
             background-color: #fee2e2;
             color: #991b1b;
         }
+
         .log {
             text-align: left;
             background: #1e1e1e;
@@ -51,16 +57,19 @@
             font-size: 0.9rem;
             margin-top: 1rem;
         }
+
         .log-entry {
             margin-bottom: 0.5rem;
             border-bottom: 1px solid #333;
             padding-bottom: 0.2rem;
         }
+
         .info {
             font-size: 0.8rem;
             color: #666;
             margin-top: 1rem;
         }
+
         .btn-sound {
             background-color: #3b82f6;
             color: white;
@@ -72,20 +81,23 @@
             margin-top: 1rem;
             transition: background-color 0.2s;
         }
+
         .btn-sound:hover {
             background-color: #2563eb;
         }
+
         .btn-sound.active {
             background-color: #10b981;
         }
     </style>
 </head>
+
 <body>
     <div class="card">
         <h2>Monitor de Impressão</h2>
         <div id="status" class="status disconnected">Desconectado</div>
         <p>Mantenha esta página aberta para receber os pedidos.</p>
-        
+
         <button id="enableSoundBtn" class="btn-sound">Ativar Alertas Sonoros</button>
 
         <div class="log" id="log">
@@ -107,22 +119,41 @@
         // Preload the alert sound
         const alertAudio = new Audio('/ding-sound-effect_2.mp3');
         let soundEnabled = false;
+        let audioContext = null;
+        let gainNode = null;
 
         soundBtn.addEventListener('click', () => {
+            if (!audioContext) {
+                // Initialize Web Audio API to boost volume beyond 100%
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaElementSource(alertAudio);
+                gainNode = audioContext.createGain();
+
+                // Boost volume by 500%
+                gainNode.gain.value = 5.0;
+
+                source.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+            }
+
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+
             // Play and pause immediately to unlock audio context in the browser
             alertAudio.play().then(() => {
                 alertAudio.pause();
                 alertAudio.currentTime = 0;
                 soundEnabled = true;
-                soundBtn.textContent = 'Som Ativado';
+                soundBtn.textContent = 'Som Ativado (+ Volume Max)';
                 soundBtn.classList.add('active');
-                addLog('Alertas sonoros ativados');
+                addLog('Alertas sonoros ativados (Volume amplificado)');
             }).catch(err => {
                 console.warn('Could not activate sound:', err);
                 addLog('Erro ao ativar som: ' + err.message);
             });
         });
-        
+
         function playAlertSound() {
             if (!soundEnabled) {
                 console.warn('Sound is disabled. User needs to interact with the page first.');
@@ -174,15 +205,15 @@
         function downloadFile(filename, content) {
             try {
                 const element = document.createElement('a');
-                
+
                 // If content is a Data URI, use it directly. Otherwise create blob.
                 if (content.startsWith('data:')) {
                     element.href = content;
                 } else {
-                    const file = new Blob([content], {type: 'text/plain'});
+                    const file = new Blob([content], { type: 'text/plain' });
                     element.href = URL.createObjectURL(file);
                 }
-                
+
                 element.download = filename;
                 document.body.appendChild(element); // Required for FireFox
                 element.click();
@@ -195,4 +226,5 @@
         }
     </script>
 </body>
+
 </html>
