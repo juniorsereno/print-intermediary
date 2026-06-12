@@ -345,8 +345,7 @@ Condições de Erro: Retorna erro se falhar validação ou impressora offline.`,
             type: 'text',
             text: JSON.stringify({
               success: false,
-              error: validationResult.error,
-              field: validationResult.field,
+              message: `Pedido não foi emitido nem impresso. Dados inválidos: ${validationResult.error}`,
             }),
           }],
         };
@@ -363,7 +362,7 @@ Condições de Erro: Retorna erro se falhar validação ou impressora offline.`,
             type: 'text',
             text: JSON.stringify({
               success: false,
-              message: 'Nenhuma impressora conectada',
+              message: 'Pedido não foi emitido nem impresso. Nenhuma impressora está conectada no momento. Caso o problema persista, transfira o atendimento para um atendente humano.',
             }),
           }],
         };
@@ -395,8 +394,7 @@ Condições de Erro: Retorna erro se falhar validação ou impressora offline.`,
             type: 'text',
             text: JSON.stringify({
               success: false,
-              message: broadcastResult.error || 'Falha ao enviar pedido',
-              jobId: job.id,
+              message: `Pedido não foi emitido nem impresso. Falha ao enviar para impressão: ${broadcastResult.error || 'erro desconhecido'}. Caso o problema persista, transfira o atendimento para um atendente humano.`,
             }),
           }],
         };
@@ -422,9 +420,7 @@ Condições de Erro: Retorna erro se falhar validação ou impressora offline.`,
           type: 'text',
           text: JSON.stringify({
             success: true,
-            jobId: job.id,
-            message: `Pedido enviado com sucesso para ${broadcastResult.clientCount} impressora(s)`,
-            clientCount: broadcastResult.clientCount,
+            message: `Pedido emitido e impresso com sucesso. Este retorno confirma que a impressão deste pedido foi concluída. Se houver um novo pedido, envie uma nova solicitação com outro pedido distinto.`,
           }),
         }],
       };
@@ -436,7 +432,7 @@ Condições de Erro: Retorna erro se falhar validação ou impressora offline.`,
           type: 'text',
           text: JSON.stringify({
             success: false,
-            error: 'Ocorreu um erro inesperado ao processar o pedido',
+            message: 'Pedido não foi emitido nem impresso. Ocorreu um erro inesperado ao processar o pedido. Caso o problema persista, transfira o atendimento para um atendente humano.',
           }),
         }],
       };
